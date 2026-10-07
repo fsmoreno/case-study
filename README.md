@@ -232,7 +232,7 @@ Decisões e limites que quem assumir deve conhecer:
   escopo.
 - O ALB Controller e o seu IRSA **não** estão no Terraform: ficaram descritos em `values-aws.yaml` (a escrever).
 
-## 10.1 CI/CD (GitHub Actions): *escrito, ainda não executado*
+## 10.1 CI/CD (GitHub Actions): **validado** (CI e CD local executados no GitHub; `cd-aws` desabilitado)
 
 ```mermaid
 flowchart LR
@@ -285,6 +285,7 @@ application/   código Go, migrations SQL         helm/app, helm/platform   char
 kubernetes/kind  cluster e values de terceiros   terraform/                módulos e ambiente prod
 observability/  aponta para o chart              scripts/                  bootstrap e smoke test
 docs/           runbook, incidente, mentoria     .github/workflows/        CI/CD
+                (ver docs/runbook.md e docs/incidente.md)
 ```
 
 A estrutura difere da sugerida no enunciado (`kubernetes/` com manifests): o chart Helm substitui os manifests
