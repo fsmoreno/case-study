@@ -1,7 +1,7 @@
 # syntax=docker/dockerfile:1
 # Versão do Go fixada por ARG para reprodutibilidade. Deve ser >= à diretiva "go" de application/go.mod
 # (o CI deve ler a versão de lá: actions/setup-go com go-version-file).
-ARG GO_VERSION=1.26
+ARG GO_VERSION=1.26.3
 
 FROM golang:${GO_VERSION}-alpine AS build
 WORKDIR /src

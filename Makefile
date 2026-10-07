@@ -29,7 +29,7 @@ else
 APP_EXTRA :=
 endif
 
-.PHONY: up down test lint floci-up floci-down floci-status kind-up monitoring-up grafana-password grafana-forward prometheus-forward traffic check-cluster secret-local floci-creds deploy smoke rollback tf-check tf-apply-local tf-destroy-local kind-down
+.PHONY: up down test lint vuln floci-up floci-down floci-status kind-up monitoring-up grafana-password grafana-forward prometheus-forward traffic check-cluster secret-local floci-creds deploy smoke rollback tf-check tf-apply-local tf-destroy-local kind-down
 
 up:            ## Dev local: app + MySQL (+ migrations)
 	docker compose up --build -d
@@ -42,6 +42,9 @@ test:
 
 lint:
 	cd application && go vet ./... && golangci-lint run
+
+vuln:          ## Vulnerabilidades da stdlib e das dependências (o mesmo govulncheck do CI)
+	cd application && go run golang.org/x/vuln/cmd/govulncheck@latest ./...
 
 floci-up:      ## Sobe o Floci (idempotente). Monta o docker.sock: ele cria contêineres (ex.: RDS) na VM de desenvolvimento.
 	@if [ -n "$$(docker ps -aq -f name=^floci$$)" ]; then \
