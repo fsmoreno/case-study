@@ -2,7 +2,8 @@ name: CD AWS (DESABILITADO)
 
 # Esboço do deploy em produção (EKS). DESABILITADO DE PROPÓSITO: a produção é hipotética e nenhum recurso AWS foi criado.
 # Mostra como seria: sem chaves estáticas (OIDC), aprovação manual, imagem verificada e deploy atômico com rollback.
-# Para habilitar: criar a role OIDC (confiança neste repositório), definir as variáveis abaixo e remover `if: false`.
+# Para habilitar: criar a role OIDC (confiança neste repositório) e definir as variáveis do repositório
+# AWS_DEPLOY_ROLE_ARN, ECR_REGISTRY e ENABLE_CD_AWS=true.
 on:
   workflow_dispatch:
     inputs:
@@ -25,7 +26,8 @@ env:
 
 jobs:
   deploy:
-    if: false # <- DESABILITADO
+    # DESABILITADO por padrão: só roda se a variável do repositório ENABLE_CD_AWS for "true" (Settings > Variables).
+    if: ${{ vars.ENABLE_CD_AWS == 'true' }}
     runs-on: ubuntu-latest
     # Aprovação manual: configurar "Required reviewers" no environment `production`.
     environment: production

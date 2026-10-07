@@ -83,7 +83,8 @@ func (m *MySQL) ListUsers(ctx context.Context, limit, offset int) ([]User, error
 	if err != nil {
 		return nil, err
 	}
-	defer rows.Close()
+	// Os erros relevantes de leitura são verificados em rows.Scan e rows.Err() abaixo.
+	defer func() { _ = rows.Close() }()
 
 	users := make([]User, 0, limit)
 	for rows.Next() {

@@ -41,7 +41,11 @@ func run() int {
 		log.Error("falha ao configurar o banco", "error", err)
 		return 1
 	}
-	defer db.Close()
+	defer func() {
+		if err := db.Close(); err != nil {
+			log.Warn("falha ao fechar o pool do banco", "error", err)
+		}
+	}()
 
 	metrics := httpapi.NewMetrics()
 	metrics.Registry.MustRegister(collectors.NewDBStatsCollector(db, cfg.DBName))
@@ -104,7 +108,7 @@ func healthcheck() int {
 	if err != nil {
 		return 1
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }() // o healthcheck só usa o status; o erro de Close não muda o resultado
 	if resp.StatusCode != http.StatusOK {
 		return 1
 	}
