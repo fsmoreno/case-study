@@ -1,6 +1,19 @@
-# Imagem de migrations: golang-migrate + os arquivos SQL, versionada com a mesma tag da aplicação.
+# syntax=docker/dockerfile:1
+# Imagem de migrations: golang-migrate COMPILADO AQUI (não a imagem oficial) + os arquivos SQL, com a mesma tag da app.
+# Motivo: a imagem oficial migrate/migrate vem com Go e dependências antigas e traz drivers de outros bancos
+# (Postgres, gRPC...), o que gerou dezenas de vulnerabilidades no scan. Compilando com o Go atual e só o driver MySQL,
+# o binário fica pequeno, com a stdlib corrigida, e a base é distroless (sem Alpine).
 # Roda como Helm hook (pre-install/pre-upgrade) antes de qualquer réplica nova da API subir.
-FROM migrate/migrate:v4.18.1
+ARG GO_VERSION=1.26.6
+
+FROM golang:${GO_VERSION}-alpine AS build
+ARG MIGRATE_VERSION=v4.18.1
+ENV CGO_ENABLED=0 GOBIN=/out
+RUN go install -trimpath -ldflags="-s -w" -tags 'mysql' \
+    github.com/golang-migrate/migrate/v4/cmd/migrate@${MIGRATE_VERSION}
+
+FROM gcr.io/distroless/static-debian12:nonroot
+COPY --from=build /out/migrate /migrate
 COPY application/migrations /migrations
-USER 65532:65532
-ENTRYPOINT ["migrate"]
+USER nonroot:nonroot
+ENTRYPOINT ["/migrate"]
