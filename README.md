@@ -45,7 +45,7 @@ de credenciais estáticas. O mesmo chart (`helm/app`) serve aos dois; só mudam 
 
 Todo o processo (compose, Kind, Helm, Floci, ESO, Prometheus/Grafana e Terraform local) foi executado em uma **VM
 Debian 13 com 4 vCPUs e 4 GB de RAM**. Funciona nesse tamanho, mas com folga pequena: os primeiros boots são lentos
-(imagens grandes, MySQL, Grafana) e por isso os timeouts do Makefile e as `startupProbe` dos charts são generosos
+(imagens grandes, RDS emulado, Grafana) e por isso os timeouts do Makefile são generosos
 (ver a tabela de problemas na seção 7). Com mais recursos tudo sobe mais rápido; com menos de 4 GB, não rode o
 docker compose e o Kind ao mesmo tempo.
 
@@ -73,24 +73,27 @@ Testes: `make test` (usa `-race`, que exige `gcc`; o `bootstrap.sh` instala `bui
 
 ## 4. Deploy no Kind: **validado** (deploy, smoke, rollback e recriação de pods)
 
-O primeiro boot do MySQL é lento (~4 min na VM de desenvolvimento, disco lento). O chart usa `startupProbe` com
-folga para não matar o contêiner durante a inicialização.
+No Kubernetes há **um único fluxo**, o que espelha a produção: o banco é um **RDS** (emulado pelo Floci no Kind) e o
+segredo vem do **Secrets Manager** via ESO. Não há MySQL dentro do cluster; o MySQL do docker compose (seção 3) é só
+para desenvolvimento local. O RDS emulado pode demorar a aceitar conexões depois de `available`, por isso o hook de
+migration tem `backoffLimit: 5`.
 
 ```bash
 make down          # libera RAM: não rode compose e Kind juntos
 make kind-up       # sobe o Floci, cria o cluster Kind, conecta o Floci à rede do Kind, instala ingress-nginx e ESO
                    # (obrigatório antes do deploy; o 1º pull das imagens é lento, os timeouts são de 10 min)
-make deploy        # build das imagens, kind load, release platform (ESO/SecretStore) e release app (hook de migration)
-                   # banco = RDS do Floci (proxy floci:7001). Plano B: make deploy MODE=planb (MySQL em StatefulSet)
+make tf-apply-local # cria no Floci a VPC, o RDS e o segredo estuda/db com os mesmos módulos de produção (seção 10)
+make deploy        # build das imagens, kind load, release platform (SecretStore/ExternalSecret) e release app
+                   # (hook de migration, depois Deployment). DB_HOST = floci:7001 (proxy do RDS emulado)
 make smoke         # 201, 409, lista sem senha, /healthz, /readyz, /metrics, e /metrics fora do Ingress
 ```
 
 Os alvos do Makefile **sempre usam o contexto `kind-estuda`**: nunca atuam em outro cluster do seu kubeconfig.
-Os alvos `secret-local`, `smoke` e `rollback` verificam antes se o cluster existe.
+Os alvos `floci-creds`, `smoke` e `rollback` verificam antes se o cluster existe.
 
 Por que dois releases Helm (`platform` e `app`): o hook de migration (`pre-install`/`pre-upgrade`) roda antes dos
-demais recursos do release. O `SecretStore`/`ExternalSecret` (e, no plano B, o MySQL) ficam no `platform` para que o
-Secret `estuda-db` já exista quando o Job de migration rodar.
+demais recursos do release. O `SecretStore`/`ExternalSecret` ficam no `platform` para que o Secret `estuda-db` já
+exista quando o Job de migration rodar.
 
 **Como o segredo chega à aplicação (validado):** o ESO lê `estuda/db` do Secrets Manager (Floci) e cria o Secret
 `estuda-db` apenas com `DB_NAME`, `DB_USER` e `DB_PASSWORD` (a senha root nunca entra no cluster). O Deployment e o
@@ -156,7 +159,8 @@ Problemas **realmente encontrados** durante a construção e como resolver:
 | Build da imagem falha com `no required module provides package` mesmo após o `tidy` | `go.mod` foi sobrescrito por uma cópia sem dependências (ex.: sincronização de arquivos) | Rodar `go mod tidy` de novo; trocar arquivos via Git, não copiando a pasta inteira |
 | `failed to download openapi ... localhost:8080 ... connection refused` no `make deploy` | O cluster Kind não existe (ou o `kubectl` não tem contexto): o `kubectl` cai no padrão `localhost:8080` | `make kind-up`. Confira com `kind get clusters` e `kubectl config current-context` |
 
-| `mysql-0` reinicia em loop (`Liveness probe failed`, exit code 137) no primeiro deploy | O liveness matava o MySQL durante a inicialização lenta do datadir (sem `startupProbe`); o volume fica meio inicializado | O chart já tem `startupProbe`. Se o volume foi corrompido: `helm uninstall platform` e `kubectl -n estuda delete pvc data-mysql-0`, depois `make deploy` |
+| O Job de migration falha na 1ª tentativa (`Can't connect to MySQL server`) | O RDS emulado reporta `available` antes de aceitar conexões | O hook tem `backoffLimit: 5` e tenta de novo; se esgotar, `make deploy` de novo. Logs: `kubectl -n estuda logs job/estuda-api-migrate` |
+| `make deploy` espera e falha em `externalsecret/estuda-db` | O segredo `estuda/db` ainda não existe no Floci (faltou `make tf-apply-local`) ou o Floci não está na rede `kind` | `make tf-apply-local`; `kubectl -n estuda describe externalsecret estuda-db` mostra o motivo |
 | `helm upgrade --install ... --wait` termina com `context deadline exceeded` (ESO, ingress) mas os pods sobem depois | Pull lento das imagens na VM de desenvolvimento; o Helm marca o release como `failed` | Confirme os pods com `kubectl get pods -A` e rode o mesmo `helm upgrade --install` de novo (idempotente). Os timeouts do Makefile são de 10 min |
 | `./scripts/smoke.sh: Permission denied` | Script copiado do Windows sem o bit de execução | O Makefile chama `bash scripts/smoke.sh`; ou `chmod +x scripts/*.sh` |
 
@@ -249,7 +253,7 @@ flowchart LR
 | `ci.yml` | push, PR e tags `v*` | lint (gofmt, vet, golangci-lint, hadolint, shellcheck, helm lint e render para local e AWS), testes com `-race` e cobertura, segurança (gitleaks no histórico, govulncheck, Checkov), build das duas imagens, scan Trivy **antes** do push, push só fora de PR, SBOM, proveniência e assinatura cosign por digest |
 | `cd-local.yml` | depois do CI na `main` (ou manual) | verifica a assinatura, sobe Floci + Kind + ESO, `terraform apply` local, implanta **a imagem que o CI construiu**, roda o smoke test e ensaia um rollback; em falha, publica um artefato com pods, eventos e logs |
 | `terraform.yml` | mudanças em `terraform/**` | fmt, validate (local e prod), tflint e Checkov. **Nunca aplica** |
-| `cd-aws.yml` | manual, **desabilitado** (`if: false`) | esboço do deploy em produção: OIDC (sem chaves), aprovação manual, cópia GHCR→ECR com o mesmo digest, `helm --atomic` |
+| `cd-aws.yml` | manual, **desabilitado** (só roda com a variável do repositório `ENABLE_CD_AWS=true`) | esboço do deploy em produção: OIDC (sem chaves), aprovação manual, cópia GHCR→ECR com o mesmo digest, `helm --atomic` |
 
 Como cada exigência do enunciado é atendida:
 - **Reprodutibilidade:** a versão do Go vem do `go.mod`; as etapas chamam o mesmo `Makefile` usado localmente.
@@ -268,7 +272,7 @@ Como cada exigência do enunciado é atendida:
 
 Configuração necessária no repositório (não vive no código): proteção da branch `main` exigindo os checks do CI,
 environment `production` com revisores obrigatórios (para o `cd-aws`) e, na habilitação, as variáveis
-`AWS_DEPLOY_ROLE_ARN` e `ECR_REGISTRY`.
+`AWS_DEPLOY_ROLE_ARN`, `ECR_REGISTRY` e `ENABLE_CD_AWS=true`.
 
 **Validar o pipeline localmente antes do primeiro push:** `actionlint` (checa a sintaxe dos workflows) e `make lint`.
 
@@ -277,7 +281,7 @@ environment `production` com revisores obrigatórios (para o `cd-aws`) e, na hab
 ## 12. Estrutura do repositório
 
 ```
-application/   código Go, migrations SQL         helm/app, helm/platform   charts (platform = plano B local)
+application/   código Go, migrations SQL         helm/app, helm/platform   charts (platform = SecretStore/ExternalSecret)
 kubernetes/kind  cluster e values de terceiros   terraform/                módulos e ambiente prod
 observability/  aponta para o chart              scripts/                  bootstrap e smoke test
 docs/           runbook, incidente, mentoria     .github/workflows/        CI/CD

@@ -1,6 +1,4 @@
-# Desenho principal no Kind: sem MySQL no cluster; o ESO lê o segredo do Secrets Manager (Floci).
-mysql:
-  enabled: false
+# Kind + Floci: o ESO lê o Secrets Manager emulado com credenciais FICTÍCIAS (o endpoint vem do controller do ESO,
+# ver kubernetes/kind/eso-values.yaml).
 externalSecret:
-  enabled: true
   auth: static

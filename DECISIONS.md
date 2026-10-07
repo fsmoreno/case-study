@@ -5,7 +5,7 @@ Formato: Contexto, Alternativas, Decisão, Motivos, Trade-offs, Consequências.
 - ADR-001 Go como linguagem (a escrever)
 - ADR-002 Kind + Helm para validação local (ver ADR-008)
 - ADR-003 EKS em produção e caminho de redução de custo (rascunho na conversa)
-- ADR-004 RDS em produção e na validação (via Floci); MySQL StatefulSet só como plano B (a escrever)
+- ADR-004 RDS em produção e na validação (via Floci); MySQL no cluster foi avaliado como plano B e retirado; o compose usa MySQL só em dev (a escrever)
 - ADR-005 RDS single-AZ, com Multi-AZ recomendado e seu custo (a escrever)
 - ADR-006 ESO com Floci local e IRSA em produção (a escrever)
 - ADR-007 Migrations via Helm hook, retrocompatíveis, golang-migrate (a escrever)

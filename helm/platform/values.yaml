@@ -1,19 +1,9 @@
-# Padrão = PLANO B: MySQL em StatefulSet + Secret criado por `make secret-local`.
-# Desenho principal (values-floci.yaml): banco é o RDS do Floci, mysql.enabled=false e o ESO cria o Secret.
-mysql:
-  enabled: true
-  image: mysql:8.4
-  # Secret com as chaves DB_NAME, DB_USER, DB_PASSWORD, MYSQL_ROOT_PASSWORD (plano B).
-  existingSecret: estuda-db
-  storage: 1Gi
-  resources:
-    requests: { cpu: 100m, memory: 512Mi }
-    limits: { memory: 1Gi }   # 512Mi é apertado para o MySQL 8.4 durante a inicialização
-
+# O banco NÃO roda no cluster: é o RDS (emulado pelo Floci no Kind; real em produção). Este chart só entrega o segredo.
 externalSecret:
-  enabled: false
   region: us-east-1
-  auth: static                         # static (Floci, local) | irsa (produção: identidade do controller do ESO)
+  # irsa (padrão, produção): identidade do controller do ESO, sem credenciais no cluster.
+  # static (Kind + Floci): credenciais FICTÍCIAS em um Secret criado por `make floci-creds`. Ver values-floci.yaml.
+  auth: irsa
   staticCredentialsSecret: floci-aws-credentials
-  remoteKey: estuda/db                 # nome do segredo no Secrets Manager
-  targetSecret: estuda-db              # Secret Kubernetes criado pelo ESO
+  remoteKey: estuda/db       # nome do segredo no Secrets Manager (criado pelo Terraform)
+  targetSecret: estuda-db    # Secret Kubernetes criado pelo ESO e consumido pelo release app

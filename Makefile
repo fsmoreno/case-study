@@ -20,7 +20,6 @@ HELM := helm --kube-context $(KCTX)
 # Floci: emulador local da AWS (VPC, RDS, Secrets Manager). Fixar a versão da imagem após o spike.
 FLOCI_IMAGE ?= floci/floci:latest
 FLOCI_PORT ?= 4566
-MODE ?= floci
 # MONITORING=false (CI): não instala o kube-prometheus-stack e desliga ServiceMonitor/PrometheusRule/dashboard do chart.
 MONITORING ?= true
 ifeq ($(MONITORING),false)
@@ -29,7 +28,7 @@ else
 APP_EXTRA :=
 endif
 
-.PHONY: up down test lint vuln floci-up floci-down floci-status kind-up monitoring-up grafana-password grafana-forward prometheus-forward traffic check-cluster secret-local floci-creds deploy smoke rollback tf-check tf-apply-local tf-destroy-local kind-down
+.PHONY: up down test lint vuln floci-up floci-down floci-status kind-up monitoring-up grafana-password grafana-forward prometheus-forward traffic check-cluster floci-creds deploy smoke rollback tf-check tf-apply-local tf-destroy-local kind-down
 
 up:            ## Dev local: app + MySQL (+ migrations)
 	docker compose up --build -d
@@ -104,45 +103,24 @@ check-cluster:
 	@kind get clusters 2>/dev/null | grep -qx '$(CLUSTER)' || { echo "Cluster '$(CLUSTER)' não existe. Rode: make kind-up"; exit 1; }
 	@$(KUBECTL) cluster-info >/dev/null 2>&1 || { echo "Cluster '$(CLUSTER)' não responde (contexto $(KCTX))."; exit 1; }
 
-secret-local: check-cluster  ## Secret estuda-db a partir do .env (sem credenciais no Git). Será substituído pelo ESO + Floci.
-	@test -f .env || { echo "crie o .env (cp .env.example .env)"; exit 1; }
-	@set -a; . ./.env; set +a; \
-	$(KUBECTL) create namespace $(NS) --dry-run=client -o yaml | $(KUBECTL) apply -f - ; \
-	$(KUBECTL) -n $(NS) create secret generic estuda-db \
-	  --from-literal=DB_NAME="$$DB_NAME" --from-literal=DB_USER="$$DB_USER" \
-	  --from-literal=DB_PASSWORD="$$DB_PASSWORD" --from-literal=MYSQL_ROOT_PASSWORD="$$MYSQL_ROOT_PASSWORD" \
-	  --dry-run=client -o yaml | $(KUBECTL) apply -f -
-
 floci-creds: check-cluster  ## Credenciais FICTÍCIAS do Floci para o SecretStore (apenas local)
 	$(KUBECTL) create namespace $(NS) --dry-run=client -o yaml | $(KUBECTL) apply -f -
 	$(KUBECTL) -n $(NS) create secret generic floci-aws-credentials \
 	  --from-literal=access-key=test --from-literal=secret-access-key=test \
 	  --dry-run=client -o yaml | $(KUBECTL) apply -f -
 
-# MODE=floci (padrão): banco = RDS do Floci, Secret criado pelo ESO a partir do Secrets Manager.
-# MODE=planb: MySQL em StatefulSet + Secret criado pelo `make secret-local`.
-ifeq ($(MODE),planb)
-PLATFORM_PREREQ := secret-local
-PLATFORM_VALUES :=
-APP_VALUES := helm/app/values-local-planb.yaml
-else
-PLATFORM_PREREQ := floci-creds
-PLATFORM_VALUES := -f helm/platform/values-floci.yaml
-APP_VALUES := helm/app/values-local.yaml
-endif
-
-deploy: $(PLATFORM_PREREQ)   ## Release platform (ESO/Secret ou MySQL) e depois release app (hook de migration)
+# Fluxo único no Kubernetes: o banco é o RDS do Floci (criado por `make tf-apply-local`) e o ESO cria o Secret
+# estuda-db a partir do Secrets Manager do Floci. O MySQL do docker compose é só para desenvolvimento local.
+deploy: floci-creds   ## Release platform (SecretStore/ExternalSecret) e depois release app (hook de migration)
 	@# SKIP_BUILD=1: usa imagens já presentes localmente (o CD baixa a que o CI construiu, escaneou e assinou).
 	@if [ "$(SKIP_BUILD)" != "1" ]; then \
 	  docker build -t $(IMAGE):$(TAG) . && \
 	  docker build -f Dockerfile.migrations -t $(MIGRATIONS_IMAGE):$(TAG) . ; \
 	fi
 	kind load docker-image $(IMAGE):$(TAG) $(MIGRATIONS_IMAGE):$(TAG) --name $(CLUSTER)
-	$(HELM) upgrade --install platform helm/platform -n $(NS) $(PLATFORM_VALUES) --wait --timeout 10m
-ifneq ($(MODE),planb)
+	$(HELM) upgrade --install platform helm/platform -n $(NS) -f helm/platform/values-floci.yaml --wait --timeout 10m
 	$(KUBECTL) -n $(NS) wait --for=condition=Ready externalsecret/estuda-db --timeout=120s
-endif
-	$(HELM) upgrade --install app helm/app -n $(NS) -f $(APP_VALUES) \
+	$(HELM) upgrade --install app helm/app -n $(NS) -f helm/app/values-local.yaml \
 	  --set image.tag=$(TAG) $(APP_EXTRA) --wait --timeout 5m
 
 smoke: check-cluster

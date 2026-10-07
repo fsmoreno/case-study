@@ -1,8 +1,0 @@
-# Plano B: MySQL em StatefulSet no próprio cluster (chart platform com mysql.enabled=true).
-replicaCount: 2
-config:
-  DB_HOST: mysql
-  DB_PORT: "3306"
-ingress:
-  className: nginx
-  host: estuda.local

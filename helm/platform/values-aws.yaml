@@ -1,9 +1,5 @@
-# Produção (EKS): sem MySQL no cluster (o banco é o RDS) e o ESO autentica por IRSA, sem credenciais no cluster.
-# O ESO deve ser instalado com a ServiceAccount anotada com a role do Terraform (output eso_role_arn):
-#   serviceAccount.annotations: { eks.amazonaws.com/role-arn: <eso_role_arn> }
-mysql:
-  enabled: false
+# Produção (EKS): o ESO autentica por IRSA, sem credenciais no cluster. Instale o ESO com a ServiceAccount anotada
+# com a role do Terraform (output eso_role_arn):  serviceAccount.annotations: { eks.amazonaws.com/role-arn: <eso_role_arn> }
 externalSecret:
-  enabled: true
   auth: irsa
   region: us-east-1

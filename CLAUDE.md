@@ -8,7 +8,7 @@ Não é para construir a infraestrutura mais complexa possível.
 | Contexto | O que roda | Executado de verdade? |
 |---|---|---|
 | Dev local | docker compose: app Go + MySQL | Sim |
-| Validação tipo produção | Kind (Kubernetes) + Helm + ESO + kube-prometheus-stack. Floci fornece SÓ VPC, RDS MySQL e Secrets Manager, provisionados com o MESMO Terraform (módulos network, rds, secrets) via `terraform apply` apontando o provider para o Floci | Sim (a validar no spike) |
+| Validação tipo produção | Kind (Kubernetes) + Helm + ESO + kube-prometheus-stack. Floci fornece SÓ VPC, RDS MySQL e Secrets Manager, provisionados com o MESMO Terraform (módulos network, rds, secrets) via `terraform apply` apontando o provider para o Floci. FLUXO ÚNICO: não há MySQL dentro do cluster | Sim (validado na VM e no CD) |
 | Produção (hipotética) | Os mesmos módulos + EKS, IAM/IRSA e ECR (módulos eks, iam-irsa, ecr, só em environments/prod) | Não: só validado e escaneado (`make tf-check`) |
 
 Floci NÃO faz parte da produção: é a "AWS de mentira" para provar o desenho localmente. O EKS NÃO é emulado
@@ -17,26 +17,23 @@ Kind é o Kubernetes de validação; em produção seria EKS (deixar isso explí
 Ponte entre validação e produção: o MESMO chart Helm (`helm/app`), mudando só values
 (`values-local.yaml` / `values-aws.yaml`). O banco é RDS nos dois (DB_HOST muda). Em prod: ESO via IRSA e ALB Controller.
 
-## Spike do Floci (fazer primeiro, com ponto de decisão)
-1. Subir Floci; criar segredo e instância RDS MySQL via `aws --endpoint-url`.
-2. Testar conexão a partir de um pod do Kind (provável: conectar o Floci ao network Docker `kind` e usar o
-   nome/IP do contêiner do RDS como DB_HOST).
-3. `terraform apply` mínimo (network + rds + secrets) contra o Floci (provider com endpoints e flags skip_*).
-4. Se custar caro: PLANO B = chart `helm/platform` (MySQL StatefulSet, já escrito) + ESO provider `fake`.
-   Registrar como limitação no README.
+## Floci (spike concluído)
+Validado: RDS e Secrets Manager do Floci alcançáveis a partir do Kind pelo nome `floci` (o contêiner é conectado à
+rede docker `kind` por `make kind-up`; o RDS fica atrás do proxy `floci:7001`) e `terraform apply` local com os
+mesmos módulos de produção. O antigo PLANO B (MySQL em StatefulSet no cluster) foi REMOVIDO de propósito: um
+fallback não testado dá falsa segurança. O MySQL do docker compose é só para desenvolvimento local.
 
 ## Decisões fechadas (virar ADRs em DECISIONS.md, mínimo exigido: 5)
 1. Go como linguagem. 2. Kind + Helm para validação local. 3. EKS em prod (ECS Fargate é mais barato para app
-isolada: é o caminho de redução de custo -50%). 4. RDS em prod e na validação (via Floci); MySQL StatefulSet só como plano B. 5. Single-AZ, com
-Multi-AZ recomendado e custo registrado. 6. ESO + Floci local / IRSA em prod (plano B: provider `fake` do ESO se
-o Floci falhar em ~1h). 7. Migrations via Helm hook, retrocompatíveis (expand/contract), golang-migrate.
+isolada: é o caminho de redução de custo -50%). 4. RDS em prod e na validação (via Floci); MySQL no cluster foi avaliado como plano B e retirado. 5. Single-AZ, com
+Multi-AZ recomendado e custo registrado. 6. ESO + Floci local / IRSA em prod. 7. Migrations via Helm hook, retrocompatíveis (expand/contract), golang-migrate.
 8. Kind como Kubernetes de validação; EKS é só alvo de produção (EKS do Floci avaliado e descartado).
 Candidatas: kube-prometheus-stack, GHCR no CI, "Terraform aplicado no Floci; EKS/IRSA/ECR só validados".
 
 ## Releases Helm (dois, por causa da ordem do hook)
-- `platform`: PLANO B apenas (MySQL StatefulSet). No desenho principal o banco é o RDS do Floci e o
-  SecretStore/ExternalSecret (ESO) cria o Secret `estuda-db` a partir do Secrets Manager. O hook de migration
-  continua exigindo que o banco e o Secret existam antes do release `app`.
+- `platform`: SecretStore + ExternalSecret (ESO), que criam o Secret `estuda-db` a partir do Secrets Manager. O
+  banco é o RDS (Floci no Kind). O hook de migration exige que o banco e o Secret existam antes do release `app`.
+  values-floci.yaml (auth static, credenciais fictícias) e values-aws.yaml (auth irsa).
 - `app`: Deployment, Service, Ingress, Job de migration (hook pre-install/pre-upgrade), ServiceMonitor,
   PrometheusRule (3 alertas), ConfigMap do dashboard Grafana. Observabilidade fica DENTRO do chart.
 - Job de migration: backoffLimit baixo, ttlSecondsAfterFinished, hook-delete-policy; falha bloqueia o deploy.
@@ -44,7 +41,8 @@ Candidatas: kube-prometheus-stack, GHCR no CI, "Terraform aplicado no Floci; EKS
 
 ## Ordem de subida local (cada passo = alvo do Makefile)
 Floci -> terraform apply local (network, rds, secrets) -> Kind -> ingress-nginx -> ESO + SecretStore (aponta
-para o Floci) -> kube-prometheus-stack -> release app -> smoke. (Plano B: release platform no lugar do RDS.) Começar o Dia 1 pelo esqueleto fim a fim (app mínima, Dockerfile, Kind, chart, ESO+Floci).
+para o Floci) -> kube-prometheus-stack -> release app -> smoke. No Makefile: `make kind-up`, `make tf-apply-local`,
+`make deploy`, `make smoke` (o CD local faz exatamente essa sequência).
 
 ## Contrato da API
 - POST /users {name,email,password} -> 201 {id,name,email,created_at}; 400 payload inválido; 409 email duplicado
