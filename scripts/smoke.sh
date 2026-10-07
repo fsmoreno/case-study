@@ -15,8 +15,17 @@ code() { curl -s -o /dev/null -w '%{http_code}' "$@"; }
 email="smoke-$(date +%s)@example.com"
 payload="{\"name\":\"Smoke Test\",\"email\":\"${email}\",\"password\":\"senha-segura\"}"
 
-[[ "$(code -H "Host: ${HOST}" -H 'Content-Type: application/json' -d "$payload" "${BASE}/users")" == "201" ]] \
-  || fail "POST /users deveria retornar 201"
+# O NGINX leva alguns segundos para carregar um Ingress recém-criado: o helm --wait só garante os pods prontos.
+# Sem esta espera o smoke logo após o deploy (ex.: no CD) recebe 404 do NGINX.
+for _ in $(seq 1 30); do
+  [[ "$(code -H "Host: ${HOST}" "${BASE}/users" || true)" == "200" ]] && break
+  sleep 2
+done
+
+# Em falha, mostra o status e o corpo da resposta (sem isso o erro não diz o que aconteceu).
+resp="$(curl -s -w '\n%{http_code}' -H "Host: ${HOST}" -H 'Content-Type: application/json' -d "$payload" "${BASE}/users" || true)"
+status="${resp##*$'\n'}"
+[[ "$status" == "201" ]] || fail "POST /users deveria retornar 201 (recebeu ${status}): ${resp%$'\n'*}"
 ok "POST /users -> 201"
 
 [[ "$(code -H "Host: ${HOST}" -H 'Content-Type: application/json' -d "$payload" "${BASE}/users")" == "409" ]] \
