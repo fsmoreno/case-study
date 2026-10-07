@@ -144,7 +144,7 @@ jobs:
       - name: Nome da imagem em minúsculas
         run: echo "IMAGE_NAME=${REGISTRY}/${GITHUB_REPOSITORY_OWNER,,}/${{ matrix.image }}" >> "$GITHUB_ENV"
 
-      - uses: docker/setup-buildx-action@v3
+      - uses: docker/setup-buildx-action@v4
 
       - name: Tags e labels
         id: meta
