@@ -50,7 +50,7 @@ jobs:
       - uses: helm/kind-action@v1
         with:
           install_only: true # o cluster é criado por `make kind-up`, igual ao ambiente local
-      - uses: hashicorp/setup-terraform@v3
+      - uses: hashicorp/setup-terraform@v4
         with:
           terraform_version: "1.15.8"
           terraform_wrapper: false
