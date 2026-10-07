@@ -98,10 +98,12 @@ jobs:
         with:
           fetch-depth: 0 # o gitleaks varre o histórico, não só o último commit
 
+      # Varre o histórico COMPLETO (não só o intervalo do push): a action oficial falha no primeiro push de um
+      # repositório (calcula o pai do primeiro commit, que não existe). --redact oculta o valor nos logs.
       - name: Segredos no Git (gitleaks)
-        uses: gitleaks/gitleaks-action@v2
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          docker run --rm -v "$PWD:/repo" --entrypoint sh zricethezav/gitleaks:v8.24.2 -c \
+            'git config --global --add safe.directory /repo && gitleaks detect --source /repo --redact --verbose --no-banner'
 
       - uses: actions/setup-go@v5
         with:
