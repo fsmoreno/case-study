@@ -1,0 +1,6 @@
+# Imagem de migrations: golang-migrate + os arquivos SQL, versionada com a mesma tag da aplicação.
+# Roda como Helm hook (pre-install/pre-upgrade) antes de qualquer réplica nova da API subir.
+FROM migrate/migrate:v4.18.1
+COPY application/migrations /migrations
+USER 65532:65532
+ENTRYPOINT ["migrate"]

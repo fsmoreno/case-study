@@ -1,0 +1,13 @@
+{{- if .Values.observability.enabled }}
+# O sidecar do Grafana (kube-prometheus-stack) carrega ConfigMaps com o label grafana_dashboard="1".
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ include "app.name" . }}-dashboard
+  labels:
+    {{- include "app.labels" . | nindent 4 }}
+    grafana_dashboard: "1"
+data:
+  estuda-api.json: |-
+{{ .Files.Get "dashboards/estuda-api.json" | indent 4 }}
+{{- end }}

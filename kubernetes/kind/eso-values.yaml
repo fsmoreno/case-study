@@ -1,0 +1,7 @@
+# External Secrets Operator no Kind. O endpoint do Secrets Manager só pode ser sobrescrito por variável de
+# ambiente do controller; aponta para o Floci (contêiner conectado à rede "kind" pelo `make kind-up`).
+# Em produção essa variável não existe: o ESO fala com o Secrets Manager real, autenticado por IRSA.
+installCRDs: true
+extraEnv:
+  - name: AWS_SECRETSMANAGER_ENDPOINT
+    value: http://floci:4566

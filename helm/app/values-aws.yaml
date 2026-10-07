@@ -1,0 +1,38 @@
+# Produção (EKS). O mesmo chart do Kind; mudam apenas imagens, banco, Ingress e réplicas.
+# Valores marcados com REPLACE_ME vêm das saídas do Terraform (environments/prod) e do CD (tag da imagem).
+replicaCount: 2
+
+image:
+  repository: REPLACE_ME.dkr.ecr.us-east-1.amazonaws.com/estuda-api   # output ecr_repository_url
+  pullPolicy: IfNotPresent
+  # tag: definida pelo CD (--set image.tag=<sha>); nunca "latest"
+
+migrations:
+  image:
+    repository: REPLACE_ME.dkr.ecr.us-east-1.amazonaws.com/estuda-api-migrations
+  backoffLimit: 5
+
+config:
+  DB_HOST: REPLACE_ME   # output rds_address (somente o host)
+  DB_PORT: "3306"
+
+# Em produção o Ingress é o do AWS Load Balancer Controller (ALB), não o NGINX do Kind.
+ingress:
+  enabled: true
+  className: alb
+  host: api.estuda.example
+  annotations:
+    alb.ingress.kubernetes.io/scheme: internet-facing
+    alb.ingress.kubernetes.io/target-type: ip
+    # O listener só roteia /users, mas o health check do target group usa a porta do pod:
+    alb.ingress.kubernetes.io/healthcheck-path: /readyz
+    alb.ingress.kubernetes.io/listen-ports: '[{"HTTPS":443}]'
+    alb.ingress.kubernetes.io/certificate-arn: REPLACE_ME   # certificado ACM
+    alb.ingress.kubernetes.io/ssl-redirect: "443"
+
+resources:
+  requests: { cpu: 100m, memory: 128Mi }
+  limits: { memory: 256Mi }
+
+observability:
+  enabled: true

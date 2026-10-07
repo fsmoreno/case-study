@@ -1,0 +1,56 @@
+replicaCount: 2
+
+image:
+  repository: estuda-api
+  tag: local
+  pullPolicy: IfNotPresent
+
+migrations:
+  image:
+    repository: estuda-api-migrations
+    tag: ""            # vazio = mesma tag da aplicação
+  backoffLimit: 5   # o banco recém-criado pode demorar a aceitar conexões (visto com o RDS do Floci)
+
+# Secret com DB_NAME, DB_USER, DB_PASSWORD (criado fora do chart: make secret-local / ESO).
+existingSecret: estuda-db
+
+config:
+  DB_HOST: mysql      # local: StatefulSet do chart platform. AWS: endpoint do RDS (values-aws.yaml)
+  DB_PORT: "3306"
+  HTTP_ADDR: ":8080"
+  DB_MAX_OPEN_CONNS: "10"
+  DB_MAX_IDLE_CONNS: "5"
+  SHUTDOWN_DELAY_SECONDS: "5"
+
+service:
+  port: 80
+
+ingress:
+  enabled: true
+  className: nginx
+  host: estuda.local
+  annotations: {}
+
+resources:
+  requests: { cpu: 50m, memory: 64Mi }
+  limits: { memory: 128Mi }
+
+pdb:
+  enabled: true
+  minAvailable: 1
+
+# Requer o Prometheus Operator (CRDs ServiceMonitor/PrometheusRule): kube-prometheus-stack.
+observability:
+  enabled: true
+  excludedRoutes: "/healthz|/readyz|/metrics"   # probes e scrape não entram nas métricas de negócio
+  serviceMonitor:
+    interval: 15s
+  alerts:
+    errorRateThreshold: 0.05     # 5% de respostas 5xx
+    latencyP95Seconds: 0.5         # leituras (GET)
+    latencyP95WriteSeconds: 1.5    # escritas (POST /users inclui bcrypt, ~0,5 s na VM de dev)
+    # Âncoras esperadas no runbook: #taxa-de-erro-alta, #latencia-p95-alta, #instancia-fora-do-ar
+    runbookUrl: https://github.com/REPLACE_ME/estuda-devops-case/blob/main/docs/runbook.md
+
+# Deve ser maior que SHUTDOWN_DELAY_SECONDS + timeout do shutdown (20s) na aplicação.
+terminationGracePeriodSeconds: 30

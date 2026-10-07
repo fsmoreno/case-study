@@ -1,0 +1,49 @@
+# Migrations como Helm hook: roda UMA vez por release, antes das réplicas novas, e uma falha bloqueia o deploy.
+# O release "platform" (MySQL) precisa existir antes: por isso são dois releases.
+# Regra: migrations retrocompatíveis (expand/contract), pois `helm rollback` não desfaz o schema.
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: {{ include "app.name" . }}-migrate
+  labels:
+    {{- include "app.labels" . | nindent 4 }}
+  annotations:
+    "helm.sh/hook": pre-install,pre-upgrade
+    "helm.sh/hook-weight": "0"
+    "helm.sh/hook-delete-policy": before-hook-creation,hook-succeeded
+spec:
+  backoffLimit: {{ .Values.migrations.backoffLimit }}
+  ttlSecondsAfterFinished: 600
+  template:
+    metadata:
+      labels:
+        {{- include "app.selectorLabels" . | nindent 8 }}
+        app.kubernetes.io/component: migration
+    spec:
+      restartPolicy: Never
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 65532
+        seccompProfile:
+          type: RuntimeDefault
+      containers:
+        - name: migrate
+          image: "{{ .Values.migrations.image.repository }}:{{ .Values.migrations.image.tag | default .Values.image.tag }}"
+          imagePullPolicy: {{ .Values.image.pullPolicy }}
+          env:
+            {{- include "app.dbEnv" . | nindent 12 }}
+            - name: DB_HOST
+              value: {{ .Values.config.DB_HOST | quote }}
+            - name: DB_PORT
+              value: {{ .Values.config.DB_PORT | quote }}
+          # $(VAR) é expandido pelo Kubernetes a partir de env acima. Senha com caracteres
+          # especiais precisaria de URL-encode.
+          args:
+            - "-path=/migrations"
+            - "-database=mysql://$(DB_USER):$(DB_PASSWORD)@tcp($(DB_HOST):$(DB_PORT))/$(DB_NAME)"
+            - "up"
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop: ["ALL"]

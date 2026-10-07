@@ -1,0 +1,137 @@
+{
+  "title": "Estuda API",
+  "uid": "estuda-api",
+  "tags": ["estuda", "api"],
+  "timezone": "browser",
+  "schemaVersion": 39,
+  "version": 1,
+  "refresh": "30s",
+  "time": { "from": "now-15m", "to": "now" },
+  "description": "Volume, erros e latência da API. Probes (/healthz, /readyz) e /metrics ficam fora das contas.",
+  "panels": [
+    {
+      "id": 1, "type": "stat", "title": "Instâncias no ar",
+      "gridPos": { "h": 4, "w": 6, "x": 0, "y": 0 },
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "targets": [ { "refId": "A", "datasource": { "type": "prometheus", "uid": "prometheus" },
+        "expr": "sum(up{job=\"estuda-api\"})" } ],
+      "fieldConfig": { "defaults": { "unit": "none", "thresholds": { "mode": "absolute", "steps": [
+        { "color": "red", "value": null }, { "color": "yellow", "value": 1 }, { "color": "green", "value": 2 } ] } }, "overrides": [] },
+      "options": { "reduceOptions": { "calcs": ["lastNotNull"] }, "colorMode": "value" }
+    },
+    {
+      "id": 2, "type": "stat", "title": "Requisições por segundo",
+      "description": "Quantas requisições estão acontecendo?",
+      "gridPos": { "h": 4, "w": 6, "x": 6, "y": 0 },
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "targets": [ { "refId": "A", "datasource": { "type": "prometheus", "uid": "prometheus" },
+        "expr": "sum(rate(http_requests_total{job=\"estuda-api\",route!~\"/healthz|/readyz|/metrics\"}[5m]))" } ],
+      "fieldConfig": { "defaults": { "unit": "reqps", "decimals": 2 }, "overrides": [] },
+      "options": { "reduceOptions": { "calcs": ["lastNotNull"] }, "colorMode": "none" }
+    },
+    {
+      "id": 3, "type": "stat", "title": "Taxa de erro 5xx",
+      "description": "Qual a taxa de erro?",
+      "gridPos": { "h": 4, "w": 6, "x": 12, "y": 0 },
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "targets": [ { "refId": "A", "datasource": { "type": "prometheus", "uid": "prometheus" },
+        "expr": "(sum(rate(http_requests_total{job=\"estuda-api\",route!~\"/healthz|/readyz|/metrics\",status=~\"5..\"}[5m])) or vector(0)) / sum(rate(http_requests_total{job=\"estuda-api\",route!~\"/healthz|/readyz|/metrics\"}[5m]))" } ],
+      "fieldConfig": { "defaults": { "unit": "percentunit", "decimals": 2, "thresholds": { "mode": "absolute", "steps": [
+        { "color": "green", "value": null }, { "color": "yellow", "value": 0.01 }, { "color": "red", "value": 0.05 } ] } }, "overrides": [] },
+      "options": { "reduceOptions": { "calcs": ["lastNotNull"] }, "colorMode": "value" }
+    },
+    {
+      "id": 4, "type": "stat", "title": "Latência p95 (leituras GET)",
+      "description": "Degradação: p95 de leitura acima de 500 ms por 5 min dispara o alerta EstudaApiHighLatencyP95 (escritas têm limite próprio, de 1,5 s, pois incluem bcrypt). Veja o painel 'Latência p95 por rota'.",
+      "gridPos": { "h": 4, "w": 6, "x": 18, "y": 0 },
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "targets": [ { "refId": "A", "datasource": { "type": "prometheus", "uid": "prometheus" },
+        "expr": "histogram_quantile(0.95, sum by (le) (rate(http_request_duration_seconds_bucket{job=\"estuda-api\",route!~\"/healthz|/readyz|/metrics\",method=\"GET\"}[5m])))" } ],
+      "fieldConfig": { "defaults": { "unit": "s", "decimals": 3, "thresholds": { "mode": "absolute", "steps": [
+        { "color": "green", "value": null }, { "color": "yellow", "value": 0.25 }, { "color": "red", "value": 0.5 } ] } }, "overrides": [] },
+      "options": { "reduceOptions": { "calcs": ["lastNotNull"] }, "colorMode": "value" }
+    },
+    {
+      "id": 5, "type": "timeseries", "title": "Requisições por rota (req/s)",
+      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 4 },
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "targets": [ { "refId": "A", "datasource": { "type": "prometheus", "uid": "prometheus" },
+        "expr": "sum by (route, method) (rate(http_requests_total{job=\"estuda-api\",route!~\"/healthz|/readyz|/metrics\"}[5m]))",
+        "legendFormat": "{{method}} {{route}}" } ],
+      "fieldConfig": { "defaults": { "unit": "reqps" }, "overrides": [] }
+    },
+    {
+      "id": 6, "type": "table", "title": "Rotas com maior volume (período selecionado)",
+      "description": "Qual endpoint apresenta maior volume?",
+      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 4 },
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "targets": [ { "refId": "A", "datasource": { "type": "prometheus", "uid": "prometheus" },
+        "expr": "sort_desc(sum by (method, route) (increase(http_requests_total{job=\"estuda-api\",route!~\"/healthz|/readyz|/metrics\"}[$__range])))",
+        "format": "table", "instant": true } ],
+      "transformations": [ { "id": "organize", "options": {
+        "excludeByName": { "Time": true },
+        "renameByName": { "method": "Método", "route": "Rota", "Value": "Requisições" } } } ],
+      "fieldConfig": { "defaults": { "unit": "none", "decimals": 0 }, "overrides": [] },
+      "options": { "showHeader": true, "sortBy": [ { "displayName": "Requisições", "desc": true } ] }
+    },
+    {
+      "id": 7, "type": "timeseries", "title": "Latência p50 / p95 / p99",
+      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 12 },
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "targets": [
+        { "refId": "A", "datasource": { "type": "prometheus", "uid": "prometheus" }, "legendFormat": "p50",
+          "expr": "histogram_quantile(0.50, sum by (le) (rate(http_request_duration_seconds_bucket{job=\"estuda-api\",route!~\"/healthz|/readyz|/metrics\"}[5m])))" },
+        { "refId": "B", "datasource": { "type": "prometheus", "uid": "prometheus" }, "legendFormat": "p95",
+          "expr": "histogram_quantile(0.95, sum by (le) (rate(http_request_duration_seconds_bucket{job=\"estuda-api\",route!~\"/healthz|/readyz|/metrics\"}[5m])))" },
+        { "refId": "C", "datasource": { "type": "prometheus", "uid": "prometheus" }, "legendFormat": "p99",
+          "expr": "histogram_quantile(0.99, sum by (le) (rate(http_request_duration_seconds_bucket{job=\"estuda-api\",route!~\"/healthz|/readyz|/metrics\"}[5m])))" }
+      ],
+      "fieldConfig": { "defaults": { "unit": "s" }, "overrides": [] }
+    },
+    {
+      "id": 8, "type": "timeseries", "title": "Respostas por status (req/s)",
+      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 12 },
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "targets": [ { "refId": "A", "datasource": { "type": "prometheus", "uid": "prometheus" },
+        "expr": "sum by (status) (rate(http_requests_total{job=\"estuda-api\",route!~\"/healthz|/readyz|/metrics\"}[5m]))",
+        "legendFormat": "{{status}}" } ],
+      "fieldConfig": { "defaults": { "unit": "reqps" }, "overrides": [] }
+    },
+    {
+      "id": 9, "type": "timeseries", "title": "Pool de conexões do banco",
+      "description": "Saturação do pool (in use próximo de max open) aparece junto com aumento de latência.",
+      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 20 },
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "targets": [
+        { "refId": "A", "datasource": { "type": "prometheus", "uid": "prometheus" }, "legendFormat": "em uso",
+          "expr": "sum(go_sql_in_use_connections{job=\"estuda-api\"})" },
+        { "refId": "B", "datasource": { "type": "prometheus", "uid": "prometheus" }, "legendFormat": "ociosas",
+          "expr": "sum(go_sql_idle_connections{job=\"estuda-api\"})" },
+        { "refId": "C", "datasource": { "type": "prometheus", "uid": "prometheus" }, "legendFormat": "máximo",
+          "expr": "sum(go_sql_max_open_connections{job=\"estuda-api\"})" },
+        { "refId": "D", "datasource": { "type": "prometheus", "uid": "prometheus" }, "legendFormat": "espera por conexão (/s)",
+          "expr": "sum(rate(go_sql_wait_count_total{job=\"estuda-api\"}[5m]))" }
+      ],
+      "fieldConfig": { "defaults": { "unit": "none" }, "overrides": [] }
+    },
+    {
+      "id": 10, "type": "timeseries", "title": "Erros inesperados de banco (/s)",
+      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 20 },
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "targets": [ { "refId": "A", "datasource": { "type": "prometheus", "uid": "prometheus" },
+        "expr": "sum by (operation) (rate(db_errors_total{job=\"estuda-api\"}[5m]))",
+        "legendFormat": "{{operation}}" } ],
+      "fieldConfig": { "defaults": { "unit": "ops" }, "overrides": [] }
+    },
+    {
+      "id": 11, "type": "timeseries", "title": "Latência p95 por rota",
+      "description": "Separa qual rota causa a latência (ex.: POST /users inclui bcrypt; GET /users é só consulta).",
+      "gridPos": { "h": 8, "w": 24, "x": 0, "y": 28 },
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "targets": [ { "refId": "A", "datasource": { "type": "prometheus", "uid": "prometheus" },
+        "expr": "histogram_quantile(0.95, sum by (le, method, route) (rate(http_request_duration_seconds_bucket{job=\"estuda-api\",route!~\"/healthz|/readyz|/metrics\"}[5m])))",
+        "legendFormat": "{{method}} {{route}}" } ],
+      "fieldConfig": { "defaults": { "unit": "s" }, "overrides": [] }
+    }
+  ]
+}

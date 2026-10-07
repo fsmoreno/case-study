@@ -1,0 +1,60 @@
+{{- if .Values.observability.enabled }}
+{{- $excl := .Values.observability.excludedRoutes }}
+{{- $runbook := .Values.observability.alerts.runbookUrl }}
+# Três alertas. As probes (/healthz, /readyz) e o /metrics ficam fora das contas para não mascarar o tráfego real.
+apiVersion: monitoring.coreos.com/v1
+kind: PrometheusRule
+metadata:
+  name: {{ include "app.name" . }}
+  labels:
+    {{- include "app.labels" . | nindent 4 }}
+spec:
+  groups:
+    - name: estuda-api
+      rules:
+        - alert: EstudaApiHighErrorRate
+          expr: |
+            sum(rate(http_requests_total{job="estuda-api",route!~"{{ $excl }}",status=~"5.."}[5m]))
+              /
+            sum(rate(http_requests_total{job="estuda-api",route!~"{{ $excl }}"}[5m]))
+              > {{ .Values.observability.alerts.errorRateThreshold }}
+          for: 5m
+          labels:
+            severity: critical
+          annotations:
+            summary: "Taxa de erro 5xx alta na API"
+            description: "{{ `Taxa de erro 5xx de {{ $value | humanizePercentage }} nos últimos 5 minutos.` }}"
+            runbook_url: "{{ $runbook }}#taxa-de-erro-alta"
+        - alert: EstudaApiHighLatencyP95
+          # Medido POR ROTA, com limite próprio para escritas: o POST /users inclui bcrypt, lento de propósito.
+          # Um p95 agregado misturaria leituras rápidas com escritas caras e daria falso alerta.
+          expr: |
+            (
+              histogram_quantile(0.95,
+                sum by (le, method, route) (rate(http_request_duration_seconds_bucket{job="estuda-api",route!~"{{ $excl }}",method!="POST"}[5m]))
+              ) > {{ .Values.observability.alerts.latencyP95Seconds }}
+            )
+            or
+            (
+              histogram_quantile(0.95,
+                sum by (le, method, route) (rate(http_request_duration_seconds_bucket{job="estuda-api",route!~"{{ $excl }}",method="POST"}[5m]))
+              ) > {{ .Values.observability.alerts.latencyP95WriteSeconds }}
+            )
+          for: 5m
+          labels:
+            severity: warning
+          annotations:
+            summary: "Latência p95 alta na API"
+            description: "{{ `Latência p95 de {{ $value | humanizeDuration }} em {{ $labels.method }} {{ $labels.route }} nos últimos 5 minutos.` }}"
+            runbook_url: "{{ $runbook }}#latencia-p95-alta"
+        - alert: EstudaApiDown
+          # Nenhuma instância no ar (ou nenhuma sendo raspada).
+          expr: (sum(up{job="estuda-api"}) or vector(0)) < 1
+          for: 2m
+          labels:
+            severity: critical
+          annotations:
+            summary: "Nenhuma instância da API está no ar"
+            description: "Nenhum pod da API respondeu ao scrape nos últimos 2 minutos."
+            runbook_url: "{{ $runbook }}#instancia-fora-do-ar"
+{{- end }}

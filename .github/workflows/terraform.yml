@@ -1,0 +1,49 @@
+name: Terraform
+
+# Valida e escaneia o Terraform. NUNCA aplica: o ambiente de produção é hipotético (ver README e DECISIONS.md).
+on:
+  push:
+    branches: [main]
+    paths: ["terraform/**", ".github/workflows/terraform.yml"]
+  pull_request:
+    paths: ["terraform/**", ".github/workflows/terraform.yml"]
+
+concurrency:
+  group: terraform-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  validate:
+    name: fmt, validate, tflint, Checkov
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: hashicorp/setup-terraform@v3
+        with:
+          terraform_version: "1.15.8"
+
+      - uses: terraform-linters/setup-tflint@v4
+
+      - name: terraform fmt
+        run: terraform -chdir=terraform fmt -check -recursive -diff
+
+      - name: terraform validate (local e prod)
+        run: |
+          for env in local prod; do
+            echo "::group::$env"
+            terraform -chdir=terraform/environments/$env init -backend=false -input=false
+            terraform -chdir=terraform/environments/$env validate
+            echo "::endgroup::"
+          done
+
+      - name: tflint
+        run: tflint --recursive --chdir=terraform
+
+      - name: Checkov
+        run: |
+          pip install --quiet checkov
+          checkov -d terraform --quiet --compact --skip-path terraform/environments/local

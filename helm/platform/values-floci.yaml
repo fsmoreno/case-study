@@ -1,0 +1,6 @@
+# Desenho principal no Kind: sem MySQL no cluster; o ESO lê o segredo do Secrets Manager (Floci).
+mysql:
+  enabled: false
+externalSecret:
+  enabled: true
+  auth: static

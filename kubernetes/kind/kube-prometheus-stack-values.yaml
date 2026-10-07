@@ -1,0 +1,46 @@
+# kube-prometheus-stack enxuto para o Kind (VM com pouca RAM). Sem Alertmanager: os alertas são avaliados pelo
+# Prometheus e ficam visíveis em Status > Rules / Alerts; em produção entraria o Alertmanager com roteamento.
+alertmanager:
+  enabled: false
+
+# Componentes do control plane que o Kind não expõe para scrape (evita alertas falsos).
+kubeEtcd: { enabled: false }
+kubeControllerManager: { enabled: false }
+kubeScheduler: { enabled: false }
+kubeProxy: { enabled: false }
+nodeExporter: { enabled: false }
+defaultRules:
+  rules:
+    etcd: false
+    kubeControllerManager: false
+    kubeSchedulerAlerting: false
+    kubeSchedulerRecording: false
+    kubeProxy: false
+
+prometheus:
+  prometheusSpec:
+    # Descobre ServiceMonitors e PrometheusRules de qualquer release/namespace (o chart `app` os traz).
+    serviceMonitorSelectorNilUsesHelmValues: false
+    podMonitorSelectorNilUsesHelmValues: false
+    ruleSelectorNilUsesHelmValues: false
+    retention: 2d            # sem volume persistente no Kind: métricas se perdem se o pod reiniciar
+    resources:
+      requests: { cpu: 100m, memory: 400Mi }
+      limits: { memory: 1Gi }
+
+grafana:
+  # A senha NÃO fica no Git: o Secret `grafana-admin` é criado por `make monitoring-up` com valor aleatório.
+  admin:
+    existingSecret: grafana-admin
+    userKey: admin-user
+    passwordKey: admin-password
+  defaultDashboardsEnabled: false
+  sidecar:
+    dashboards:
+      enabled: true
+      label: grafana_dashboard
+      labelValue: "1"
+      searchNamespace: ALL   # carrega o ConfigMap do dashboard que o chart `app` cria no namespace estuda
+  resources:
+    requests: { cpu: 50m, memory: 128Mi }
+    limits: { memory: 384Mi }

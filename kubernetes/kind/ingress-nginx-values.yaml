@@ -1,0 +1,15 @@
+# Valores do ingress-nginx para o Kind (hostPort no nó com label ingress-ready=true).
+controller:
+  hostPort:
+    enabled: true
+  service:
+    type: NodePort
+  nodeSelector:
+    ingress-ready: "true"
+  tolerations:
+    - key: node-role.kubernetes.io/control-plane
+      operator: Equal
+      effect: NoSchedule
+  watchIngressWithoutClass: false
+  admissionWebhooks:
+    enabled: false

@@ -1,0 +1,77 @@
+name: CD AWS (DESABILITADO)
+
+# Esboço do deploy em produção (EKS). DESABILITADO DE PROPÓSITO: a produção é hipotética e nenhum recurso AWS foi criado.
+# Mostra como seria: sem chaves estáticas (OIDC), aprovação manual, imagem verificada e deploy atômico com rollback.
+# Para habilitar: criar a role OIDC (confiança neste repositório), definir as variáveis abaixo e remover `if: false`.
+on:
+  workflow_dispatch:
+    inputs:
+      sha:
+        description: "SHA completo cujas imagens (sha-<7>) já foram publicadas e assinadas pelo CI"
+        required: true
+
+permissions:
+  contents: read
+  id-token: write # OIDC com a AWS: nenhuma AWS_ACCESS_KEY_ID guardada no GitHub
+  packages: read
+
+concurrency:
+  group: cd-aws
+  cancel-in-progress: false
+
+env:
+  AWS_REGION: us-east-1
+  CLUSTER_NAME: estuda
+
+jobs:
+  deploy:
+    if: false # <- DESABILITADO
+    runs-on: ubuntu-latest
+    # Aprovação manual: configurar "Required reviewers" no environment `production`.
+    environment: production
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.sha }}
+
+      - name: Credenciais temporárias via OIDC (role de deploy com privilégio mínimo)
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ vars.AWS_DEPLOY_ROLE_ARN }}
+          aws-region: ${{ env.AWS_REGION }}
+
+      - uses: azure/setup-helm@v4
+      - uses: sigstore/cosign-installer@v3
+      - uses: imjasonh/setup-crane@v0.4
+
+      - name: Verificar assinatura e copiar imagens GHCR -> ECR (mesmo digest)
+        run: |
+          SHORT="${{ inputs.sha }}"; SHORT="${SHORT::7}"
+          OWNER="${GITHUB_REPOSITORY_OWNER,,}"
+          ECR="${{ vars.ECR_REGISTRY }}"   # <conta>.dkr.ecr.<região>.amazonaws.com
+          aws ecr get-login-password | crane auth login "$ECR" -u AWS --password-stdin
+          for img in estuda-api estuda-api-migrations; do
+            src="ghcr.io/${OWNER}/${img}:sha-${SHORT}"
+            cosign verify \
+              --certificate-identity-regexp "^https://github.com/${GITHUB_REPOSITORY}/\.github/workflows/ci\.yml@" \
+              --certificate-oidc-issuer https://token.actions.githubusercontent.com "$src" >/dev/null
+            crane copy "$src" "${ECR}/${img}:sha-${SHORT}"   # tags imutáveis no ECR (módulo ecr)
+          done
+
+      - name: Acesso ao cluster
+        run: aws eks update-kubeconfig --name "${CLUSTER_NAME}" --region "${AWS_REGION}"
+
+      # --atomic: se o deploy falhar (migration, probes), o Helm reverte sozinho para a revisão anterior.
+      - name: Release platform (SecretStore/ExternalSecret via IRSA)
+        run: helm upgrade --install platform helm/platform -n estuda --create-namespace -f helm/platform/values-aws.yaml --atomic --timeout 10m
+
+      - name: Release app (hook de migration, depois Deployment)
+        run: |
+          SHORT="${{ inputs.sha }}"; SHORT="${SHORT::7}"
+          helm upgrade --install app helm/app -n estuda -f helm/app/values-aws.yaml \
+            --set image.tag="sha-${SHORT}" --atomic --timeout 10m
+
+      - name: Validar
+        run: |
+          kubectl -n estuda rollout status deploy/estuda-api --timeout=120s
+          helm -n estuda history app

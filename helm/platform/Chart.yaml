@@ -1,0 +1,6 @@
+apiVersion: v2
+name: platform
+description: Dependências locais da aplicação (MySQL em StatefulSet). Em produção o banco é o RDS e este chart não é usado.
+type: application
+version: 0.1.0
+appVersion: "8.4"

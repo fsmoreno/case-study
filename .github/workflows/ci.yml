@@ -1,0 +1,217 @@
+name: CI
+
+# Commit -> lint/validações -> testes -> segurança -> build da imagem -> scan -> push -> assinatura.
+# O deploy (cd-local.yml) só roda depois deste workflow passar na main e usa a imagem EXATA que este pipeline gerou.
+on:
+  push:
+    branches: [main]
+    tags: ["v*"]
+  pull_request:
+
+# Cancela execuções antigas do mesmo PR/branch (feedback mais rápido, menos custo de runner).
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+# Privilégio mínimo por padrão; cada job pede só o que precisa.
+permissions:
+  contents: read
+
+env:
+  REGISTRY: ghcr.io
+
+jobs:
+  lint:
+    name: Lint e validações
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      # A versão do Go vem do go.mod: Go do CI, da VM e do Dockerfile não divergem.
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: application/go.mod
+          cache-dependency-path: application/go.sum
+
+      - name: gofmt
+        working-directory: application
+        run: |
+          unformatted="$(gofmt -l .)"
+          if [ -n "$unformatted" ]; then echo "::error::Arquivos sem gofmt:"; echo "$unformatted"; exit 1; fi
+
+      - name: go vet
+        working-directory: application
+        run: go vet ./...
+
+      - uses: golangci/golangci-lint-action@v8
+        with:
+          working-directory: application
+
+      - name: Dockerfiles (hadolint)
+        uses: hadolint/hadolint-action@v3.1.0
+        with:
+          dockerfile: Dockerfile
+      - uses: hadolint/hadolint-action@v3.1.0
+        with:
+          dockerfile: Dockerfile.migrations
+
+      - name: Scripts (shellcheck)
+        run: shellcheck scripts/*.sh
+
+      - uses: azure/setup-helm@v4
+      - name: Helm lint e render (local e aws)
+        run: |
+          helm lint helm/app helm/platform
+          helm lint helm/app -f helm/app/values-aws.yaml
+          helm template app helm/app -f helm/app/values-local.yaml --set image.tag=ci >/dev/null
+          helm template app helm/app -f helm/app/values-aws.yaml --set image.tag=ci >/dev/null
+          helm template platform helm/platform -f helm/platform/values-floci.yaml >/dev/null
+          helm template platform helm/platform -f helm/platform/values-aws.yaml >/dev/null
+
+  test:
+    name: Testes
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: application/go.mod
+          cache-dependency-path: application/go.sum
+      - name: go test (race + cobertura)
+        working-directory: application
+        run: |
+          CGO_ENABLED=1 go test ./... -race -covermode=atomic -coverprofile=coverage.out
+          echo "### Cobertura" >> "$GITHUB_STEP_SUMMARY"
+          go tool cover -func=coverage.out | tail -n 1 >> "$GITHUB_STEP_SUMMARY"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: coverage
+          path: application/coverage.out
+
+  security:
+    name: Segurança (código e dependências)
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0 # o gitleaks varre o histórico, não só o último commit
+
+      - name: Segredos no Git (gitleaks)
+        uses: gitleaks/gitleaks-action@v2
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: application/go.mod
+          cache-dependency-path: application/go.sum
+      - name: Vulnerabilidades em dependências Go (govulncheck)
+        working-directory: application
+        run: |
+          go install golang.org/x/vuln/cmd/govulncheck@latest
+          "$(go env GOPATH)/bin/govulncheck" ./...
+
+      - name: Configuração de IaC e charts (Checkov)
+        run: |
+          pip install --quiet checkov
+          # environments/local aponta para um emulador e desliga proteções de propósito (ver README).
+          checkov -d terraform --quiet --compact --skip-path terraform/environments/local
+          checkov -d helm --framework helm --quiet --compact || echo "::warning::Checkov Helm com achados (revisar)"
+
+  build:
+    name: Build, scan e push da imagem (${{ matrix.image }})
+    needs: [lint, test, security]
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: true
+      matrix:
+        include:
+          - image: estuda-api
+            dockerfile: Dockerfile
+          - image: estuda-api-migrations
+            dockerfile: Dockerfile.migrations
+    permissions:
+      contents: read
+      packages: write # push no GHCR
+      id-token: write # assinatura keyless (cosign/OIDC): sem chave privada para guardar
+    env:
+      PUSH: ${{ github.event_name == 'push' }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Nome da imagem em minúsculas
+        run: echo "IMAGE_NAME=${REGISTRY}/${GITHUB_REPOSITORY_OWNER,,}/${{ matrix.image }}" >> "$GITHUB_ENV"
+
+      - uses: docker/setup-buildx-action@v3
+
+      - name: Tags e labels
+        id: meta
+        uses: docker/metadata-action@v5
+        with:
+          images: ${{ env.IMAGE_NAME }}
+          tags: |
+            type=sha,format=short
+            type=ref,event=tag
+          labels: |
+            org.opencontainers.image.source=${{ github.server_url }}/${{ github.repository }}
+
+      # 1) Build local (sem push) para escanear ANTES de publicar.
+      - name: Build (sem push)
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: ${{ matrix.dockerfile }}
+          load: true
+          tags: scan-target:ci
+          cache-from: type=gha,scope=${{ matrix.image }}
+          cache-to: type=gha,mode=max,scope=${{ matrix.image }}
+
+      - name: Scan da imagem (Trivy) — falha em HIGH/CRITICAL com correção disponível
+        uses: aquasecurity/trivy-action@0.28.0
+        with:
+          image-ref: scan-target:ci
+          severity: HIGH,CRITICAL
+          ignore-unfixed: true
+          exit-code: "1"
+          format: table
+
+      # 2) Só push em push de branch/tag (nunca em pull request).
+      - name: Login no GHCR
+        if: env.PUSH == 'true'
+        uses: docker/login-action@v3
+        with:
+          registry: ${{ env.REGISTRY }}
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Push (com SBOM e proveniência)
+        id: push
+        if: env.PUSH == 'true'
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: ${{ matrix.dockerfile }}
+          push: true
+          tags: ${{ steps.meta.outputs.tags }}
+          labels: ${{ steps.meta.outputs.labels }}
+          sbom: true
+          provenance: mode=max
+          cache-from: type=gha,scope=${{ matrix.image }}
+
+      # 3) Assinatura por digest: o deploy pode verificar que a imagem veio deste pipeline.
+      - uses: sigstore/cosign-installer@v3
+        if: env.PUSH == 'true'
+      - name: Assinar imagem (cosign keyless)
+        if: env.PUSH == 'true'
+        run: cosign sign --yes "${IMAGE_NAME}@${{ steps.push.outputs.digest }}"
+
+      - name: Resumo
+        if: env.PUSH == 'true'
+        run: |
+          {
+            echo "### ${{ matrix.image }}"
+            echo "- Digest: \`${{ steps.push.outputs.digest }}\`"
+            echo "- Tags: \`${{ steps.meta.outputs.tags }}\`"
+          } >> "$GITHUB_STEP_SUMMARY"

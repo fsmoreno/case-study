@@ -1,0 +1,9 @@
+# Kind, desenho principal: banco = RDS emulado pelo Floci (proxy na porta 7001, contêiner "floci" na rede "kind").
+# Em produção, DB_HOST seria o endpoint do RDS (values-aws.yaml).
+replicaCount: 2
+config:
+  DB_HOST: floci
+  DB_PORT: "7001"
+ingress:
+  className: nginx
+  host: estuda.local

@@ -1,0 +1,7 @@
+.env
+*.tfstate
+*.tfstate.*
+.terraform/
+*.tfvars
+bin/
+coverage.out

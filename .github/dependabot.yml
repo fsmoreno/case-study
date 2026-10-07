@@ -1,0 +1,15 @@
+# Mantém dependências e versões de actions atualizadas por PR (revisáveis), em vez de versões esquecidas.
+version: 2
+updates:
+  - package-ecosystem: github-actions
+    directory: /
+    schedule: { interval: weekly }
+  - package-ecosystem: gomod
+    directory: /application
+    schedule: { interval: weekly }
+  - package-ecosystem: docker
+    directory: /
+    schedule: { interval: weekly }
+  - package-ecosystem: terraform
+    directory: /terraform/environments/prod
+    schedule: { interval: weekly }
