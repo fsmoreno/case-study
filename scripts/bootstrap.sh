@@ -21,6 +21,7 @@ die() { printf '\033[1;31mERRO: %s\033[0m\n' "$*" >&2; exit 1; }
 
 [[ $EUID -ne 0 ]] || die "rode como usuário normal (o script usa sudo quando precisa)."
 command -v sudo >/dev/null || die "sudo não encontrado. Como root: apt-get install -y sudo && usermod -aG sudo $USER"
+# shellcheck source=/dev/null
 . /etc/os-release
 [[ "${ID:-}" == "debian" ]] || die "pensado para Debian (detectado: ${ID:-?})."
 
