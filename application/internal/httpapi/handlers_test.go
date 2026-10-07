@@ -88,12 +88,12 @@ func TestCreateUser(t *testing.T) {
 func TestCreateUserValidation(t *testing.T) {
 	_, h := newTestServer(&fakeStore{})
 	cases := map[string]string{
-		"json inválido":    `{`,
+		"json inválido":      `{`,
 		"campo desconhecido": `{"name":"A","email":"a@b.com","password":"12345678","admin":true}`,
-		"sem nome":         `{"name":" ","email":"a@b.com","password":"12345678"}`,
-		"email inválido":   `{"name":"A","email":"nao-e-email","password":"12345678"}`,
-		"senha curta":      `{"name":"A","email":"a@b.com","password":"123"}`,
-		"senha > 72 bytes": `{"name":"A","email":"a@b.com","password":"` + strings.Repeat("x", 73) + `"}`,
+		"sem nome":           `{"name":" ","email":"a@b.com","password":"12345678"}`,
+		"email inválido":     `{"name":"A","email":"nao-e-email","password":"12345678"}`,
+		"senha curta":        `{"name":"A","email":"a@b.com","password":"123"}`,
+		"senha > 72 bytes":   `{"name":"A","email":"a@b.com","password":"` + strings.Repeat("x", 73) + `"}`,
 	}
 	for name, body := range cases {
 		t.Run(name, func(t *testing.T) {
