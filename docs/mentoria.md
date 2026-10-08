@@ -48,8 +48,9 @@ consiga operar sozinha e, sobretudo, **entender por que** as coisas são como s�
 - **Se não está escrito, não existe.** Toda decisão relevante vira ADR; todo procedimento, runbook; todo erro, uma linha na tabela de
   problemas. Uma dúvida repetida é um sinal de documentação faltando.
 - **Automação em vez de instrução:** o que a pessoa precisaria lembrar de fazer vira um alvo do Makefile ou um passo do pipeline.
-- **Guardas no lugar do aviso:** o pipeline barra vulnerabilidades, segredos e formatação; a proteção da branch `main` impede o
-  empurrão direto. O sistema ensina o limite sem uma pessoa precisando vigiar.
+- **Guardas no lugar do aviso:** o pipeline barra vulnerabilidades, segredos e formatação no CI. Num time, eu complementaria
+  com a proteção da branch `main` (exigir os checks e impedir o empurrão direto), que **não está configurada neste case**. O
+  sistema ensina o limite sem uma pessoa precisando vigiar.
 - **Medir a autonomia:** se, num mês, a pessoa resolveu alertas e entregou mudanças sem me consultar, a transferência funcionou; se não,
   descobrimos o que faltava documentar.
 

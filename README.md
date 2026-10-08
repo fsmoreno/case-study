@@ -309,9 +309,11 @@ Como cada exigência do enunciado é atendida:
   canceladas; cobertura e digests vão para o resumo da execução; falha no CD gera artefato de diagnóstico.
 - **Controle de versões:** o Dependabot propõe atualizações de actions, módulos Go, imagens base e Terraform.
 
-Configuração necessária no repositório (não vive no código): proteção da branch `main` exigindo os checks do CI,
-environment `production` com revisores obrigatórios (para o `cd-aws`) e, na habilitação, as variáveis
-`AWS_DEPLOY_ROLE_ARN`, `ECR_REGISTRY` e `ENABLE_CD_AWS=true`.
+**Configuração do repositório (não vive no código).** Para este case, que é um repositório individual, **não** configurei
+proteção de branch nem o environment `production`: o CI roda em todo push e PR, mas não bloqueia o merge. Num time real eu
+recomendaria, no mínimo, exigir os checks do CI na `main` e bloquear *force push*; e, para o `cd-aws`, um environment
+`production` com revisores obrigatórios. Para habilitar o `cd-aws` seriam necessárias as variáveis `AWS_DEPLOY_ROLE_ARN`,
+`ECR_REGISTRY` e `ENABLE_CD_AWS=true`.
 
 **Antes de cada push**, rode localmente o que o CI roda: `make lint`, `make test`, `make vuln`, `make tf-check` e `actionlint`
 (sintaxe dos workflows). Evita o ciclo de erro e correção no pipeline.
@@ -365,7 +367,7 @@ metrics-server) e é a evolução natural. Dois cuidados: cada réplica abre at�
 | **Como a aplicação acessa o banco?** | Por variáveis de ambiente vindas desse Secret. O RDS é **privado** (`publicly_accessible = false`, subnets privadas) e o security group só aceita a porta 3306 do security group dos nós do EKS. **Limites conhecidos:** a aplicação usa o usuário *master* (o ideal é um usuário de aplicação com privilégios mínimos) e a conexão **não está configurada com TLS** |
 | **Como as credenciais são protegidas?** | Em repouso: RDS com `storage_encrypted`, Secrets Manager e Secrets do EKS com KMS. No acesso: ESO com **IRSA** (sem credenciais no cluster). Senhas de usuários: **bcrypt**, nunca em resposta nem em log. Credenciais do Floci: **fictícias**, só local, e isso está explícito |
 | **Como as imagens são verificadas?** | Trivy antes do push (barra HIGH/CRITICAL com correção), `govulncheck`, hadolint, SBOM e proveniência anexados, **assinatura cosign** e **`cosign verify` no CD** antes de implantar; tags imutáveis no ECR; base **distroless** com usuário não-root. Detalhes na ADR-010 |
-| **Como o acesso à infraestrutura é controlado?** | AWS por **OIDC** no pipeline (sem chaves guardadas) e aprovação manual no environment `production`; `GITHUB_TOKEN` com permissões mínimas por job; API do EKS por *access entries* e endpoint público **restrito a CIDRs obrigatórios**; roles IAM separadas para cluster, nós e ESO. Pendente (configuração do repositório): proteção da branch `main` |
+| **Como o acesso à infraestrutura é controlado?** | AWS por **OIDC** no pipeline (sem chaves guardadas) e aprovação manual no environment `production` (descrita no `cd-aws`, desabilitado); `GITHUB_TOKEN` com permissões mínimas por job; API do EKS por *access entries* e endpoint público **restrito a CIDRs obrigatórios**; roles IAM separadas para cluster, nós e ESO. **Não configurado neste case** (repositório individual): proteção da branch `main`, recomendada num time |
 | **Quais portas precisam estar expostas?** | Apenas **443** no balanceador (ALB), roteando só `/users`. O `/metrics`, o `/healthz` e o `/readyz` **não passam pelo Ingress** (o smoke test verifica isso). A 3306 é só interna ao security group; a API do Kubernetes (443) é restrita por CIDR. No Kind, 80 e 443 ficam na VM |
 | **Como reduziria privilégios?** | Pod: `runAsNonRoot`, `readOnlyRootFilesystem`, `allowPrivilegeEscalation: false`, `drop: ["ALL"]`, seccomp `RuntimeDefault`. IAM: a role do ESO lê **apenas** os dois segredos da plataforma (`estuda/db` e `estuda/grafana`), por ARN. A aplicação recebe só 3 chaves do segredo. **Evoluções:** NetworkPolicy, Pod Security Admission, usuário de banco sem privilégio de *master* |
 | **Como evitaria credenciais no Git?** | `.gitignore` (`.env`, `*.tfstate`, `*.tfvars`), **gitleaks** no CI sobre o histórico completo (`--redact`), segredos gerados pelo Terraform e entregues pelo ESO, e um `.env.example` só com placeholders de desenvolvimento |
