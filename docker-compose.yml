@@ -1,18 +1,24 @@
+# Desenvolvimento local: `docker compose up` funciona sem nenhum arquivo extra.
+# Os valores abaixo são PADRÕES DE DESENVOLVIMENTO (não são segredos reais). Para mudá-los, copie .env.example para .env:
+# o Compose lê o .env automaticamente e ele tem prioridade sobre os padrões.
 services:
   mysql:
     image: mysql:8.4
     environment:
-      MYSQL_ROOT_PASSWORD: ${MYSQL_ROOT_PASSWORD}
-      MYSQL_DATABASE: ${DB_NAME}
-      MYSQL_USER: ${DB_USER}
-      MYSQL_PASSWORD: ${DB_PASSWORD}
+      MYSQL_ROOT_PASSWORD: ${MYSQL_ROOT_PASSWORD:-root-dev}
+      MYSQL_DATABASE: ${DB_NAME:-estuda}
+      MYSQL_USER: ${DB_USER:-estuda}
+      MYSQL_PASSWORD: ${DB_PASSWORD:-estuda-dev}
     volumes:
       - mysql-data:/var/lib/mysql
+    # A 1ª inicialização do MySQL é lenta (3 a 4 min na VM de desenvolvimento, com disco lento). Durante o start_period
+    # as falhas não contam; depois, 40 tentativas de 5 s. Sem isso o Compose desiste com "dependency mysql failed to start".
     healthcheck:
-      test: ["CMD", "mysqladmin", "ping", "-h", "127.0.0.1", "-u${DB_USER}", "-p${DB_PASSWORD}"]
+      test: ["CMD", "mysqladmin", "ping", "-h", "127.0.0.1", "-u${DB_USER:-estuda}", "-p${DB_PASSWORD:-estuda-dev}"]
       interval: 5s
       timeout: 3s
-      retries: 20
+      start_period: 120s
+      retries: 40
 
   # Mesma ferramenta (golang-migrate) que roda como Helm hook no Kubernetes.
   migrate:
@@ -21,7 +27,7 @@ services:
       - ./application/migrations:/migrations:ro
     command:
       - "-path=/migrations"
-      - "-database=mysql://${DB_USER}:${DB_PASSWORD}@tcp(mysql:3306)/${DB_NAME}"
+      - "-database=mysql://${DB_USER:-estuda}:${DB_PASSWORD:-estuda-dev}@tcp(mysql:3306)/${DB_NAME:-estuda}"
       - "up"
     depends_on:
       mysql:
@@ -31,9 +37,13 @@ services:
     build:
       context: .
       dockerfile: Dockerfile
-    env_file: .env
     environment:
+      HTTP_ADDR: ":8080"
       DB_HOST: mysql
+      DB_PORT: "3306"
+      DB_NAME: ${DB_NAME:-estuda}
+      DB_USER: ${DB_USER:-estuda}
+      DB_PASSWORD: ${DB_PASSWORD:-estuda-dev}
     ports:
       - "8080:8080"
     depends_on:

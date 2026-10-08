@@ -62,12 +62,12 @@ resource "aws_db_instance" "this" {
   publicly_accessible    = false
   multi_az               = var.multi_az
 
-  backup_retention_period      = var.backup_retention_days
-  copy_tags_to_snapshot        = true
-  deletion_protection          = var.deletion_protection
-  skip_final_snapshot          = var.skip_final_snapshot
-  final_snapshot_identifier    = var.skip_final_snapshot ? null : "${var.name}-final"
-  auto_minor_version_upgrade   = true
+  backup_retention_period             = var.backup_retention_days
+  copy_tags_to_snapshot               = true
+  deletion_protection                 = var.deletion_protection
+  skip_final_snapshot                 = var.skip_final_snapshot
+  final_snapshot_identifier           = var.skip_final_snapshot ? null : "${var.name}-final"
+  auto_minor_version_upgrade          = true
   iam_database_authentication_enabled = var.iam_database_authentication
   enabled_cloudwatch_logs_exports     = var.log_exports
 

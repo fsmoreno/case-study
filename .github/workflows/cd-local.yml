@@ -25,6 +25,7 @@ permissions:
 env:
   REGISTRY: ghcr.io
   CLUSTER: estuda
+  KUBE_CONTEXT: kind-estuda # o Makefile cria o cluster com este nome (kind-<CLUSTER>)
 
 jobs:
   deploy:
@@ -36,11 +37,16 @@ jobs:
     steps:
       - name: Resolver o commit
         id: ver
+        env:
+          # Entrada passada por variável de ambiente (e não interpolada no script): evita injeção de comando.
+          EVENT_SHA: ${{ github.event.workflow_run.head_sha || inputs.sha }}
         run: |
-          SHA="${{ github.event.workflow_run.head_sha || inputs.sha }}"
-          echo "sha=${SHA}" >> "$GITHUB_OUTPUT"
-          echo "short=${SHA::7}" >> "$GITHUB_OUTPUT"
-          echo "owner=${GITHUB_REPOSITORY_OWNER,,}" >> "$GITHUB_OUTPUT"
+          [[ "$EVENT_SHA" =~ ^[0-9a-f]{40}$ ]] || { echo "::error::SHA inválido: informe o commit completo (40 caracteres)"; exit 1; }
+          {
+            echo "sha=${EVENT_SHA}"
+            echo "short=${EVENT_SHA::7}"
+            echo "owner=${GITHUB_REPOSITORY_OWNER,,}"
+          } >> "$GITHUB_OUTPUT"
 
       - uses: actions/checkout@v4
         with:
@@ -81,12 +87,13 @@ jobs:
             docker tag "$ref" "${img}:ci-${SHORT}-rb"   # 2ª "versão" para o ensaio de rollback
           done
 
-      - name: Floci, Kind e ESO (sem o stack de monitoramento, para caber no runner)
-        run: make kind-up MONITORING=false
+      - name: Floci, Kind e ESO
+        run: make kind-up
 
       - name: Terraform local (VPC, RDS e segredo no Floci, com os mesmos módulos de produção)
         run: make tf-apply-local
 
+      # Sem `make monitoring-up` no runner (o stack pesa e não é o objeto do CD): MONITORING=false desliga as CRDs no chart.
       - name: Deploy
         run: make deploy SKIP_BUILD=1 MONITORING=false TAG=ci-${{ steps.ver.outputs.short }}
 
@@ -97,7 +104,7 @@ jobs:
       - name: Ensaio de rollback
         run: |
           make deploy SKIP_BUILD=1 MONITORING=false TAG=ci-${{ steps.ver.outputs.short }}-rb
-          helm --kube-context kind-${CLUSTER} -n estuda history app
+          helm --kube-context "$KUBE_CONTEXT" -n estuda history app
           make rollback
           make smoke
 
@@ -105,13 +112,13 @@ jobs:
         if: failure()
         run: |
           mkdir -p diag
-          kubectl --context kind-${CLUSTER} get pods -A -o wide > diag/pods.txt || true
-          kubectl --context kind-${CLUSTER} -n estuda describe pods > diag/describe-pods.txt || true
-          kubectl --context kind-${CLUSTER} -n estuda get events --sort-by=.lastTimestamp > diag/events.txt || true
-          kubectl --context kind-${CLUSTER} -n estuda logs deploy/estuda-api --all-containers --tail=200 > diag/api.log || true
-          kubectl --context kind-${CLUSTER} -n estuda logs -l app.kubernetes.io/component=migration --tail=200 > diag/migration.log || true
-          kubectl --context kind-${CLUSTER} -n estuda describe externalsecret > diag/externalsecret.txt || true
-          helm --kube-context kind-${CLUSTER} -n estuda history app > diag/helm-history.txt || true
+          kubectl --context "$KUBE_CONTEXT" get pods -A -o wide > diag/pods.txt || true
+          kubectl --context "$KUBE_CONTEXT" -n estuda describe pods > diag/describe-pods.txt || true
+          kubectl --context "$KUBE_CONTEXT" -n estuda get events --sort-by=.lastTimestamp > diag/events.txt || true
+          kubectl --context "$KUBE_CONTEXT" -n estuda logs deploy/estuda-api --all-containers --tail=200 > diag/api.log || true
+          kubectl --context "$KUBE_CONTEXT" -n estuda logs -l app.kubernetes.io/component=migration --tail=200 > diag/migration.log || true
+          kubectl --context "$KUBE_CONTEXT" -n estuda describe externalsecret > diag/externalsecret.txt || true
+          helm --kube-context "$KUBE_CONTEXT" -n estuda history app > diag/helm-history.txt || true
           docker logs floci --tail 200 > diag/floci.log 2>&1 || true
 
       - uses: actions/upload-artifact@v4

@@ -91,6 +91,23 @@ module "secrets" {
   tags = local.tags
 }
 
+# Senha do admin do Grafana: gerada aqui e entregue ao cluster pelo ESO (chart platform, namespace monitoring).
+resource "random_password" "grafana" {
+  length  = 24
+  special = false
+}
+
+module "secrets_grafana" {
+  source = "../../modules/secrets"
+
+  name = "estuda/grafana"
+  values = {
+    "admin-user"     = "admin"
+    "admin-password" = random_password.grafana.result
+  }
+  tags = local.tags
+}
+
 module "ecr" {
   source = "../../modules/ecr"
 
@@ -106,11 +123,11 @@ module "ecr_migrations" {
   tags = local.tags
 }
 
-# IRSA do External Secrets Operator: lê SOMENTE o segredo estuda/db (privilégio mínimo).
+# IRSA do External Secrets Operator: lê SOMENTE os dois segredos da plataforma (privilégio mínimo, por ARN).
 data "aws_iam_policy_document" "eso" {
   statement {
     actions   = ["secretsmanager:GetSecretValue", "secretsmanager:DescribeSecret"]
-    resources = [module.secrets.arn]
+    resources = [module.secrets.arn, module.secrets_grafana.arn]
   }
 }
 

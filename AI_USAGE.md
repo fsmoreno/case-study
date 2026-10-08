@@ -1,14 +1,76 @@
 # Uso de IA
 
 ## 1. Ferramentas
-- Claude (Claude Code / chat)
+
+Usei **somente o Claude**, em uma única conversa contínua no Claude Code (extensão do VS Code). Todo o trabalho foi
+conduzido e discutido ali. (Instalei também o Claude CLI na VM de testes, mas o projeto foi construído e conversado na sessão
+principal; a VM serviu para **executar** e validar.)
 
 ## 2. Como foram utilizadas
-- Discussão de arquitetura e ADRs
-- Geração inicial do esqueleto do repositório (Dockerfile, compose, Makefile)
+
+Divisão de trabalho: o Claude escreveu e revisou arquivos numa máquina Windows **sem Go, Docker, Kubernetes nem Helm
+instalados**, então quase nada do que ele gerou pôde ser executado por ele. **Eu executava tudo numa VM Debian 13** (4 vCPUs,
+4 GB de RAM) e colava as saídas e os erros na conversa; o Claude diagnosticava e corrigia. Usos concretos:
+
+- **Arquitetura e decisões:** discussão do desenho em três contextos (compose, Kind com Floci, produção hipotética), escolha de
+  Go, Kind e Helm, EKS em produção, RDS, ESO, migrations por hook, e a redação das 11 ADRs.
+- **Código da aplicação:** API REST em Go (handlers, métricas, shutdown gracioso, health checks), testes unitários e as
+  migrations SQL.
+- **Contêineres:** Dockerfile multi-stage com distroless, `Dockerfile.migrations`, `docker-compose.yml`.
+- **Kubernetes:** os charts Helm (`app` e `platform`), configuração do Kind, ingress, ESO, kube-prometheus-stack, dashboard do
+  Grafana e as regras de alerta.
+- **Infraestrutura como código:** módulos Terraform (`network`, `rds`, `secrets`, `eks`, `iam-irsa`, `ecr`) e os ambientes
+  `local` e `prod`.
+- **Automação:** Makefile, scripts (`bootstrap.sh`, `smoke.sh`, `traffic.sh`) e os workflows do GitHub Actions.
+- **Documentação:** README, runbook, cenário de incidente, custos, mentoria e este arquivo.
+- **Diagnóstico de erros:** interpretação dos logs, eventos e relatórios que eu colava (kubelet, Helm, Trivy, `govulncheck`,
+  Checkov, GitHub Actions).
+- **Pesquisa pontual:** o Claude consultou a web e a API do GitHub quando a resposta não podia vir de memória (por exemplo, se o
+  Floci emula EKS e quais tags do `trivy-action` existem).
 
 ## 3. Validação
-Preencher conforme cada item for validado (o que a IA sugeriu / aceitei / alterei / rejeitei / como validei).
+
+**Regra que segui:** tudo que o Claude gerou sem poder executar foi tratado como **rascunho** até eu rodar. A confiança veio da
+execução, não da explicação.
+
+**O que validei, e como**
+
+| O quê | Como |
+|---|---|
+| Aplicação e testes | `make test` (`-race`), `make lint` (golangci-lint), `govulncheck`, `make up` com `curl` real |
+| Kubernetes | `make deploy` e `make smoke` no Kind; rollback (`helm history`); apagar os pods e observar a recriação |
+| Segredos e banco | ExternalSecret `SecretSynced`, owner reference do Secret, conexão de um pod ao RDS do Floci |
+| Observabilidade | Targets `UP` no Prometheus, dashboard com tráfego gerado, alerta em `Pending` e, depois, normal |
+| Terraform | `make tf-check` (fmt, validate, tflint, Checkov), `make tf-apply-local` (21 recursos) e um segundo apply sem mudanças |
+| Pipeline | CI e CD rodando no GitHub: lint, testes, segurança, build, scan, push, assinatura, verificação, deploy, smoke e rollback |
+| Afirmações do Claude | Conferi pelas saídas (eventos do pod, relatórios), e várias afirmações se mostraram erradas (ver a tabela abaixo) |
+
+**O que o Claude sugeriu e eu aceitei:** a arquitetura em três contextos, Go, Kind com Helm, ESO com Floci, migrations por hook,
+kube-prometheus-stack com o dashboard e os alertas dentro do chart, o Terraform com módulos compartilhados aplicados no Floci, e
+a cadeia de entrega (Trivy, SBOM, cosign).
+
+**O que eu alterei ou decidi diferente**
+- **Floci só para VPC, RDS e Secrets Manager.** O Claude tratou o Floci só como Secrets Manager e mantinha o MySQL como
+  StatefulSet; eu propus usar o RDS do Floci e deixar o Kind como Kubernetes (e registrar que em produção seria EKS).
+- **EKS em produção.** Eu observei que o ECS seria o melhor para uma aplicação simples; o Claude mostrou as duas opções e eu escolhi
+  manter o EKS e usar a ADR para descrever o caminho de redução de custo.
+- **Remoção do plano B** (MySQL no cluster): decisão minha, e o MySQL do compose ficou só para desenvolvimento.
+- **Senha do Grafana no Secrets Manager:** ideia minha; o Claude a implementou depois (segredo `estuda/grafana` no Terraform e
+  um segundo release do chart `platform` no namespace `monitoring`).
+- **O comando de subir o Floci**, o **alvo no Makefile** e as informações do ambiente (VM Debian 13, 4 GB) vieram de mim.
+
+**O que foi rejeitado ou descartado**
+- O **EKS emulado pelo Floci** como cluster de validação (avaliado, e a ADR-008 registra o motivo).
+- O **plano B** com MySQL em StatefulSet, que o Claude havia proposto e depois foi retirado.
+- A action `gitleaks-action`, a imagem oficial `migrate/migrate` e o p95 agregado de latência: o Claude as sugeriu e o pipeline ou
+  os testes mostraram que não serviam (detalhes na tabela abaixo).
+
+**O que não foi validado, e eu quero deixar claro**
+- O **Terraform de produção nunca foi aplicado** (só validado e escaneado); os módulos `eks`, `iam-irsa` e `ecr` não rodaram
+  contra uma conta AWS.
+- Os **valores de custo** em `docs/custos.md` são estimativas de memória, a confirmar no Pricing Calculator.
+- O **EKS do Floci** não foi testado por mim: a decisão se baseou na documentação do projeto.
+- O workflow `cd-aws.yml` está desabilitado e nunca foi executado.
 
 ## 4. Erros da IA (registrar na hora, com evidência real)
 | Data | O que a IA sugeriu | Por que estava errado | Como identifiquei |
@@ -23,3 +85,5 @@ Preencher conforme cada item for validado (o que a IA sugeriu / aceitei / altere
 | 2026-10-07 | Escreveu o código Go com `defer db.Close()`, `defer rows.Close()` e `defer resp.Body.Close()` descartando o erro de retorno. | O linter do próprio projeto (`golangci-lint`, errcheck) reprovou os 3 pontos. Os testes e o build passavam: o código funcionava, mas não cumpria o padrão que o CI exige. | Ao rodar `make lint` na VM pela primeira vez (o lint nunca havia sido executado). Correção: tratar ou descartar explicitamente o erro (`_ =`), com log no fechamento do pool do banco. Lição: o lint entra no CI para pegar exatamente isso. |
 | 2026-10-07 | Usou `gitleaks/gitleaks-action@v2` para varrer segredos no CI. | No primeiro push do repositório a action calcula o intervalo de commits a partir do pai do primeiro commit, que não existe: `git log 2bc66ef^..cd4fe0c` falha com `unknown revision` e o job termina com `ERROR: Unexpected exit code [1]` sem varrer nada (`scanned ~0 bytes`, `no leaks found in partial scan`). | Pelo log do job `Segurança` no primeiro run do CI. Correção: rodar o gitleaks via Docker com `detect --source` varrendo o histórico completo, que serve também para o primeiro push. |
 | 2026-10-07 | Fixou versões de actions e de toolchain de memória: `aquasecurity/trivy-action@0.28.0` e `GO_VERSION=1.26.3` (e antes `go 1.26.0` no `go.mod`, deixado pelo `go mod tidy`). | O Trivy falhou com `Unable to resolve action aquasecurity/trivy-action@0.28.0, unable to find version 0.28.0` (as tags passaram a ter prefixo `v`). O `govulncheck` apontou 20 vulnerabilidades da stdlib do Go 1.26.0 (corrigidas até 1.26.3; a VM resolveu com 1.26.6). | Pelo log do CI (job `build` e job `Segurança`). Para o Trivy, consultei a API do GitHub (tags do repositório) em vez de adivinhar outra versão: a mais recente era `v0.36.0`. Correção: `@v0.36.0`; Go fixado em um patch sem vulnerabilidades conhecidas, no `go.mod` e no Dockerfile. |
+| 2026-10-07 | Afirmou que, depois de entregar a senha do Grafana pelo Secrets Manager (ESO), bastava reiniciar o Grafana para a senha nova valer. | O Grafana só aplica a senha do admin ao **criar** o usuário; depois ela fica no banco dele, e o login com a senha nova falhou. O usuário apontou que reiniciar não resolve (e estava certo). | Ao tentar o login no Grafana. Correção: `grafana cli admin reset-admin-password` com o valor do Secret (validado), encapsulado em `make grafana-reset-password`, e a documentação da rotação corrigida. |
+| 2026-10-07 | Escolheu a imagem oficial `migrate/migrate:v4.18.1` como base da imagem de migrations, sem avaliar a postura de segurança dela. | O scan do Trivy no CI reprovou a imagem: 50 vulnerabilidades (46 HIGH, 4 CRITICAL) no binário `migrate` (Go 1.23.1 e dependências antigas de drivers de outros bancos, como grpc e pgx) e 4 HIGH no Alpine 3.19, já fora de suporte. | Pelo relatório do Trivy no job `build` (passo de scan, antes do push). Correção: compilar o `migrate` no próprio Dockerfile com o Go 1.26.6 e só o driver MySQL (`-tags mysql`), com base distroless. Prefiri isso a `.trivyignore` em massa ou a baixar a severidade do gate. |

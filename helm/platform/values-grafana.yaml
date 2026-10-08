@@ -1,0 +1,9 @@
+# Segundo uso do chart: entrega ao namespace monitoring a senha do Grafana guardada no Secrets Manager (estuda/grafana).
+# Use junto com values-floci.yaml (Kind) ou values-aws.yaml (produção). As chaves batem com o que o
+# kube-prometheus-stack espera em grafana.admin.existingSecret (userKey/passwordKey).
+externalSecret:
+  remoteKey: estuda/grafana
+  targetSecret: grafana-admin
+  keys:
+    - admin-user
+    - admin-password

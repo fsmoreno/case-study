@@ -20,7 +20,8 @@ HELM := helm --kube-context $(KCTX)
 # Floci: emulador local da AWS (VPC, RDS, Secrets Manager). Fixar a versão da imagem após o spike.
 FLOCI_IMAGE ?= floci/floci:latest
 FLOCI_PORT ?= 4566
-# MONITORING=false (CI): não instala o kube-prometheus-stack e desliga ServiceMonitor/PrometheusRule/dashboard do chart.
+# MONITORING=false (CI): o deploy desliga ServiceMonitor/PrometheusRule/dashboard do chart (o CI não instala o
+# kube-prometheus-stack: não há `make monitoring-up` no CD).
 MONITORING ?= true
 ifeq ($(MONITORING),false)
 APP_EXTRA := --set observability.enabled=false
@@ -28,7 +29,7 @@ else
 APP_EXTRA :=
 endif
 
-.PHONY: up down test lint vuln floci-up floci-down floci-status kind-up monitoring-up grafana-password grafana-forward prometheus-forward traffic check-cluster floci-creds deploy smoke rollback tf-check tf-apply-local tf-destroy-local kind-down
+.PHONY: up down test lint vuln floci-up floci-down floci-status kind-up monitoring-up grafana-password grafana-reset-password grafana-forward prometheus-forward traffic check-cluster floci-creds deploy smoke rollback tf-check tf-apply-local tf-destroy-local kind-down
 
 up:            ## Dev local: app + MySQL (+ migrations)
 	docker compose up --build -d
@@ -63,7 +64,7 @@ floci-status:
 floci-down:    ## Remove o Floci. Contêineres criados por ele (ex.: RDS) podem permanecer: confira com `docker ps -a`.
 	-docker rm -f floci
 
-kind-up: floci-up  ## Cluster Kind + ingress-nginx + ESO (TODO: kube-prometheus-stack). Floci conectado à rede "kind".
+kind-up: floci-up  ## Cluster Kind + ingress-nginx + ESO. Floci conectado à rede "kind". (Monitoramento: make monitoring-up)
 	kind create cluster --name $(CLUSTER) --config kubernetes/kind/cluster.yaml
 	@# Os pods alcançam o Floci (e o RDS emulado) pelo nome "floci" na rede do Kind.
 	docker network connect kind floci 2>/dev/null || true
@@ -74,14 +75,18 @@ kind-up: floci-up  ## Cluster Kind + ingress-nginx + ESO (TODO: kube-prometheus-
 	  -f kubernetes/kind/ingress-nginx-values.yaml --wait --timeout 10m
 	$(HELM) upgrade --install external-secrets external-secrets/external-secrets -n external-secrets --create-namespace \
 	  -f kubernetes/kind/eso-values.yaml --wait --timeout 10m   # 1º pull das imagens é lento na VM de dev
-	@if [ "$(MONITORING)" != "false" ]; then $(MAKE) monitoring-up; else echo "MONITORING=false: monitoring-up ignorado"; fi
 
-monitoring-up: check-cluster  ## kube-prometheus-stack (Prometheus + Grafana). Senha do Grafana aleatória, fora do Git.
+# Requer `make tf-apply-local` ANTES: a senha do Grafana vem do Secrets Manager (segredo estuda/grafana, criado pelo
+# Terraform) e o ESO a entrega ao namespace monitoring antes de o Grafana subir. Rode antes do `make deploy`
+# (o chart app usa as CRDs do Prometheus Operator para o ServiceMonitor e as regras de alerta).
+monitoring-up: check-cluster  ## kube-prometheus-stack (Prometheus + Grafana), com a senha do Grafana vinda do Secrets Manager
 	$(KUBECTL) create namespace monitoring --dry-run=client -o yaml | $(KUBECTL) apply -f -
-	@$(KUBECTL) -n monitoring get secret grafana-admin >/dev/null 2>&1 || \
-	  $(KUBECTL) -n monitoring create secret generic grafana-admin \
-	    --from-literal=admin-user=admin \
-	    --from-literal=admin-password="$$(head -c 24 /dev/urandom | base64 | tr -d '/+=' | head -c 20)"
+	$(KUBECTL) -n monitoring create secret generic floci-aws-credentials \
+	  --from-literal=access-key=test --from-literal=secret-access-key=test \
+	  --dry-run=client -o yaml | $(KUBECTL) apply -f -
+	$(HELM) upgrade --install grafana-secret helm/platform -n monitoring \
+	  -f helm/platform/values-floci.yaml -f helm/platform/values-grafana.yaml --wait --timeout 5m
+	$(KUBECTL) -n monitoring wait --for=condition=Ready externalsecret/grafana-admin --timeout=120s
 	helm repo add prometheus-community https://prometheus-community.github.io/helm-charts
 	helm repo update
 	$(HELM) upgrade --install kube-prometheus-stack prometheus-community/kube-prometheus-stack -n monitoring \
@@ -89,6 +94,12 @@ monitoring-up: check-cluster  ## kube-prometheus-stack (Prometheus + Grafana). S
 
 grafana-password:  ## Mostra a senha do Grafana (usuário: admin)
 	@$(KUBECTL) -n monitoring get secret grafana-admin -o jsonpath='{.data.admin-password}' | base64 -d; echo
+
+grafana-reset-password: check-cluster  ## Rotação: aplica no Grafana em execução a senha que está no Secret (vinda do Secrets Manager)
+	@# O Grafana só aplica a senha ao criar o usuário admin; depois ela fica no banco dele. Trocar o Secret não basta.
+	@$(KUBECTL) -n monitoring exec deploy/kube-prometheus-stack-grafana -c grafana -- \
+	  grafana cli admin reset-admin-password \
+	  "$$($(KUBECTL) -n monitoring get secret grafana-admin -o jsonpath='{.data.admin-password}' | base64 -d)"
 
 grafana-forward:   ## http://localhost:3000 (de fora da VM: ssh -L 3000:localhost:3000 usuario@vm)
 	$(KUBECTL) -n monitoring port-forward svc/kube-prometheus-stack-grafana 3000:80

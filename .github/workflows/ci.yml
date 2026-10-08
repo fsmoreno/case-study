@@ -127,7 +127,7 @@ jobs:
     needs: [lint, test, security]
     runs-on: ubuntu-latest
     strategy:
-      fail-fast: true
+      fail-fast: false # cada imagem mostra o PRÓPRIO erro (com true, a falha de uma cancela a outra e esconde a causa)
       matrix:
         include:
           - image: estuda-api

@@ -166,7 +166,7 @@ identidade do próprio controller do ESO, sem credenciais no cluster).
 - Fonte única de verdade no Secrets Manager, criada pelo Terraform; o Git nunca vê o valor.
 - A mesma mecânica no Kind e em produção: só mudam o endpoint e a autenticação.
 - Privilégio mínimo: o `ExternalSecret` busca só `DB_NAME`, `DB_USER` e `DB_PASSWORD` (a senha root nunca entra no cluster) e
-  a role IRSA lê só o segredo `estuda/db`.
+  a role IRSA lê só os dois segredos da plataforma (`estuda/db` e `estuda/grafana`), por ARN.
 
 **Trade-offs.** O Secret existe no etcd (no EKS, criptografado com KMS). A rotação exige reiniciar os pods (as variáveis são lidas
 na partida; um Reloader resolveria). O ESO só permite trocar o endpoint por variável de ambiente do controller. O Floci usa
@@ -251,7 +251,7 @@ erro de calibragem achado com carga real e corrigido. As probes (`/healthz`, `/r
 **Trade-offs.** Sem Alertmanager no Kind (economia de RAM): um alerta `Firing` só aparece na tela do Prometheus. Sem volume
 persistente para o Prometheus no Kind. Em produção entram o Alertmanager com roteamento e armazenamento persistente.
 
-**Consequências.** Cada alerta aponta para uma âncora do `docs/runbook.md`. O CI usa `MONITORING=false` para não instalar o
+**Consequências.** Cada alerta aponta para uma âncora do `docs/runbook.md`. A senha do admin do Grafana vem do mesmo caminho dos demais segredos (Secrets Manager, ESO). O CD usa `MONITORING=false` e não roda o `make monitoring-up`, para não instalar o
 stack no runner.
 
 ---

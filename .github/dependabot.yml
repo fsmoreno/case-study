@@ -1,15 +1,21 @@
 # Mantém dependências e versões de actions atualizadas por PR (revisáveis), em vez de versões esquecidas.
+# Frequência mensal e poucos PRs abertos por vez, para não gerar ruído: cada PR roda o CI inteiro e só deve ser
+# mesclado depois de revisado (principalmente atualizações de Go, de imagens base e do provider da AWS).
 version: 2
 updates:
   - package-ecosystem: github-actions
     directory: /
-    schedule: { interval: weekly }
+    schedule: { interval: monthly }
+    open-pull-requests-limit: 2
   - package-ecosystem: gomod
     directory: /application
-    schedule: { interval: weekly }
+    schedule: { interval: monthly }
+    open-pull-requests-limit: 2
   - package-ecosystem: docker
     directory: /
-    schedule: { interval: weekly }
+    schedule: { interval: monthly }
+    open-pull-requests-limit: 2
   - package-ecosystem: terraform
     directory: /terraform/environments/prod
-    schedule: { interval: weekly }
+    schedule: { interval: monthly }
+    open-pull-requests-limit: 2

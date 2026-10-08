@@ -155,7 +155,9 @@ kubectl --context kind-estuda -n estuda scale deploy/estuda-api --replicas=4    
 
 ### Trocar a senha do banco
 
-A senha é gerada pelo Terraform e fica no Secrets Manager (`estuda/db`). Ao regenerá-la: aplicar o Terraform, forçar a
+A senha do banco é gerada pelo Terraform e fica no Secrets Manager (`estuda/db`); a do Grafana segue o mesmo caminho
+(`estuda/grafana`, entregue ao namespace `monitoring`). **Grafana:** depois de trocar o segredo e de o ESO sincronizar, rode
+`make grafana-reset-password`: o Grafana só aplica a senha ao criar o admin, e um restart não a altera. Ao regenerar a do banco: aplicar o Terraform, forçar a
 sincronização do ESO e reiniciar os pods, porque a aplicação lê o Secret só na partida:
 
 ```bash

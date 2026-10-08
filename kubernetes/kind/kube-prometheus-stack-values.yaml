@@ -29,12 +29,17 @@ prometheus:
       limits: { memory: 1Gi }
 
 grafana:
-  # A senha NÃO fica no Git: o Secret `grafana-admin` é criado por `make monitoring-up` com valor aleatório.
+  # A senha NÃO fica no Git: o Secret `grafana-admin` é criado pelo ESO a partir do Secrets Manager (estuda/grafana,
+  # gerado pelo Terraform) por `make monitoring-up`, antes da instalação do stack.
   admin:
     existingSecret: grafana-admin
     userKey: admin-user
     passwordKey: admin-password
   defaultDashboardsEnabled: false
+  # Sem volume: o banco do Grafana é um emptyDir (some se o pod for recriado). A senha do admin só é aplicada ao criar o
+  # usuário; para rotacioná-la num pod em execução use `make grafana-reset-password`.
+  persistence:
+    enabled: false
   sidecar:
     dashboards:
       enabled: true

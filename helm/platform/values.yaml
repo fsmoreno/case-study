@@ -1,4 +1,6 @@
-# O banco NÃO roda no cluster: é o RDS (emulado pelo Floci no Kind; real em produção). Este chart só entrega o segredo.
+# O banco NÃO roda no cluster: é o RDS (emulado pelo Floci no Kind; real em produção). Este chart só entrega segredos
+# do Secrets Manager ao cluster. É instalado uma vez por segredo: o do banco (namespace estuda, estes valores) e o do
+# Grafana (namespace monitoring, values-grafana.yaml).
 externalSecret:
   region: us-east-1
   # irsa (padrão, produção): identidade do controller do ESO, sem credenciais no cluster.
@@ -6,4 +8,8 @@ externalSecret:
   auth: irsa
   staticCredentialsSecret: floci-aws-credentials
   remoteKey: estuda/db       # nome do segredo no Secrets Manager (criado pelo Terraform)
-  targetSecret: estuda-db    # Secret Kubernetes criado pelo ESO e consumido pelo release app
+  targetSecret: estuda-db    # Secret Kubernetes criado pelo ESO
+  keys:                      # chaves do JSON do segredo que viram chaves do Secret
+    - DB_NAME
+    - DB_USER
+    - DB_PASSWORD

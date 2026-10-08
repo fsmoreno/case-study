@@ -90,3 +90,21 @@ module "secrets" {
   recovery_window_in_days = 0
   tags                    = local.tags
 }
+
+# Senha do admin do Grafana: gerada aqui e entregue ao cluster pelo ESO (chart platform, namespace monitoring).
+resource "random_password" "grafana" {
+  length  = 24
+  special = false
+}
+
+module "secrets_grafana" {
+  source = "../../modules/secrets"
+
+  name = "estuda/grafana"
+  values = {
+    "admin-user"     = "admin"
+    "admin-password" = random_password.grafana.result
+  }
+  recovery_window_in_days = 0
+  tags                    = local.tags
+}
