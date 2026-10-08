@@ -1,25 +1,25 @@
 # Custos
 
-> **Estimativa aproximada**, não uma cotação. Os preços unitários são de lista (sob demanda, `us-east-1`) **de memória** e
-> devem ser **conferidos no AWS Pricing Calculator** antes de qualquer decisão. O que importa aqui é a **ordem de grandeza**
-> e **onde está o custo**. Premissas: 730 horas por mês, tráfego baixo (poucos GB), 1 segredo, 1 ambiente de produção.
+> **Estimativa aproximada**, não uma cotação. Os preços unitários são de lista (sob demanda, `us-east-1`), de memória, e
+> devem ser conferidos no AWS Pricing Calculator antes de qualquer decisão real. O que importa aqui é a **ordem de grandeza**
+> e **onde está o custo**. Premissas: 730 horas por mês, tráfego baixo (poucos GB), 2 segredos, 1 ambiente de produção.
 
 ## Estimativa mensal da arquitetura de produção (EKS + RDS)
 
-| Componente | Premissa | US$/mês (aprox.) | Confirmar |
-|---|---|---:|---|
-| EKS (control plane) | 1 cluster, US$ 0,10/h | 73 | [ ] |
-| Nós do EKS | 2 x `t3.medium` sob demanda, ~US$ 0,0416/h cada | 61 | [ ] |
-| NAT Gateway | 1 (compartilhado), ~US$ 0,045/h, mais tráfego | 33 + tráfego | [ ] |
-| IPv4 público (EIP do NAT) | ~US$ 0,005/h | 4 | [ ] |
-| ALB | 1 balanceador, ~US$ 0,0225/h mais LCU | 20 | [ ] |
-| RDS MySQL | `db.t4g.micro` Single-AZ, ~US$ 0,016/h | 12 | [ ] |
-| Storage do RDS | 20 GB gp3, ~US$ 0,115/GB | 2 | [ ] |
-| Secrets Manager | 1 segredo, US$ 0,40 por segredo | 0,4 | [ ] |
-| KMS | 1 chave (Secrets do EKS), US$ 1 | 1 | [ ] |
-| CloudWatch Logs | logs do control plane e Flow Logs (retenção de 1 ano) | 5 a 15 | [ ] |
-| ECR | 2 repositórios, poucas imagens | 1 | [ ] |
-| **Total** | | **~ US$ 210 a 225** | |
+| Componente | Premissa | US$/mês (aprox.) |
+|---|---|---:|
+| EKS (control plane) | 1 cluster, US$ 0,10/h | 73 |
+| Nós do EKS | 2 x `t3.medium` sob demanda, ~US$ 0,0416/h cada | 61 |
+| NAT Gateway | 1 (compartilhado), ~US$ 0,045/h, mais tráfego | 33 + tráfego |
+| IPv4 público (EIP do NAT) | ~US$ 0,005/h | 4 |
+| ALB | 1 balanceador, ~US$ 0,0225/h mais LCU | 20 |
+| RDS MySQL | `db.t4g.micro` Single-AZ, ~US$ 0,016/h | 12 |
+| Storage do RDS | 20 GB gp3, ~US$ 0,115/GB | 2 |
+| Secrets Manager | 2 segredos (banco e Grafana), US$ 0,40 por segredo | 0,8 |
+| KMS | 1 chave (Secrets do EKS), US$ 1 | 1 |
+| CloudWatch Logs | logs do control plane e Flow Logs (retenção de 1 ano) | 5 a 15 |
+| ECR | 2 repositórios, poucas imagens | 1 |
+| **Total** | | **~ US$ 210 a 225** |
 
 Não incluídos: tráfego de saída (cresce com o uso), monitoramento gerenciado, domínio e certificados ACM públicos (sem custo).
 Multi-AZ no RDS acrescenta aproximadamente o valor da própria instância (~US$ 12 neste porte): ver ADR-005.
