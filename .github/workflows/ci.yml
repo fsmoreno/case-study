@@ -83,7 +83,7 @@ jobs:
           CGO_ENABLED=1 go test ./... -race -covermode=atomic -coverprofile=coverage.out
           echo "### Cobertura" >> "$GITHUB_STEP_SUMMARY"
           go tool cover -func=coverage.out | tail -n 1 >> "$GITHUB_STEP_SUMMARY"
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v6
         with:
           name: coverage
           path: application/coverage.out

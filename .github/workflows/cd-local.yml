@@ -121,7 +121,7 @@ jobs:
           helm --kube-context "$KUBE_CONTEXT" -n estuda history app > diag/helm-history.txt || true
           docker logs floci --tail 200 > diag/floci.log 2>&1 || true
 
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v6
         if: failure()
         with:
           name: diagnostico-cd-local
